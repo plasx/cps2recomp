@@ -94,9 +94,11 @@ namespace {
 } // namespace
 
 namespace {
-    constexpr uint32_t kStateVersion = 10; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
+    constexpr uint32_t kStateVersion = 11; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
                                           // 8: widescreen's camera a frame ago; 9: a guest board's, runtime/guest.h;
-                                          // 10: classic CPS-1 sound, machine/cps1_sound.h)
+                                          // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: the order Marvel vs.
+                                          // Capcom's sides start in, games/mvsc/src/tag.cpp, and Cross Fever's count of
+                                          // steps for the gauge, crossfever.cpp)
 
     // (a path is UTF-8 text: by its wide name on Windows, where a folder with an accent is not in the system's code page)
     FILE *OpenFile(const std::string &path, const wchar_t *wideMode, const char *mode) {

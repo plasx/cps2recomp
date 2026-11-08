@@ -41,6 +41,16 @@
   host's in a match now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game
   marks for matches (`kFeatureMatch`). The protocol is 7: the welcome says how many play at each machine, and each
   frame's controls are each one's. `make GAME=<id> check-online FOUR=1` plays a match of four over localhost.
+- **Marvel vs. Capcom: Cross Fever**, the Dreamcast's mode for four people, on the Alternative modes page with Tag team
+  on: each character is moved by its own person all the time, both of a team's in a Duo Team Attack, which lasts twice
+  as long, and the person on point tags out, as on the Dreamcast (`games/mvsc/src/crossfever.cpp`; `fight/tag.h`'s
+  `Held` gives each person's controls before the routing). As the Dreamcast's mode does, both teams' hyper combo gauges
+  also fill slowly by themselves, the partner off point has its moves looked for when it is in the fight (a Variable
+  Counter's newcomer), and holding Start keeps the one on point taunting. `games/mvsc/movies/cross_fever.txt` has both
+  teams' attacks at once with four people.
+- **Marvel vs. Capcom, Tag team**: a side that starts with its second character (the three punches held as the
+  choosing ends) has each person still playing the character they chose; before, the two people swapped characters.
+  Kept with save states (version 11).
 
 ## 1.4.0
 
