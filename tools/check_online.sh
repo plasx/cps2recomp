@@ -2,28 +2,30 @@
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Tommy McLeroy. Part of cps2recomp.
 #
-# Online play (issue #70, port/netplay.h) between two copies of the game on this machine: one hosts, the other
-# joins it over localhost, each with made-up play for its own player, every packet sent late (50 ms, give or take 25)
-# and one in twenty lost (--net-fake), so that the guesses go wrong and frames are rolled back. The host has every
-# feature that changes play on and the joining side none, so the joining side must take the host's (and both turn
-# off the cheats). Both write a
-# frame's state hash once it has both players' real controls (--hash-log); the two logs must be the same, and
-# neither side may stop on a desync. And the host's record of both players' controls (--record), replayed without the
-# network, must give the same hashes: each player's controls drove their own player. At the board's pace: FRAMES
-# (3000 unless said) take FRAMES / 60 seconds. Each side gives a name and says a line in the chat (--net-name,
-# --net-say): both sides must have both names, and each the other's line.
+# Online play (issue #70, port/netplay.h) between copies of the game on this machine: one hosts, the others join it
+# over localhost, each with made-up play for its own players, every packet sent late (50 ms, give or take 25) and one
+# in twenty lost (--net-fake), so that the guesses go wrong and frames are rolled back. The host has every feature
+# that changes play on and the joining side none, so the joining side must take the host's (and all turn off the
+# cheats). Each writes a frame's state hash once it has every player's real controls (--hash-log); the logs must be
+# the same, and none may stop on a desync. And the host's record of every player's controls (--record), replayed
+# without the network, must give the same hashes: each player's controls drove their own player. At the board's pace:
+# FRAMES (3000 unless said) take FRAMES / 60 seconds. Each machine gives a name and says a line in the chat (--net-name,
+# --net-say): every machine must have every name, and every other machine's line.
 #
 # JOIN_ROM: the joining side's set, another region's (game.cfg's other_set): it plays the host's program, whose online_words
-# the host sends, so the two logs and the replay (of the host's set) must still be the same.
+# the host sends, so the logs and the replay (of the host's set) must still be the same.
 #
 # ARCADE=1: the host plays alone while it waits (--net-arcade) and the other side joins a few seconds later, so that
 # the match begins from the game as the host's play left it, sent whole; the replay from the board's reset is not tried.
 #
-# FOUR=1: a match of four, for a game with tag team (fight/tag.h): the host has its 2 vs 2 on, and the modes marked for
-# matches (kFeatureMatch, on or off: games/mvsc's Cross Fever), so two people play at each machine (players 1 and 3 the
-# host's, 2 and 4 the other side's), each with made-up play of their own; the record and its replay have all four.
+# A match of four, for a game with tag team (fight/tag.h): the host has its 2 vs 2 on, and the modes marked for matches
+# (kFeatureMatch, on or off: games/mvsc's Cross Fever), each of the four with made-up play of their own; the record and
+# its replay have all four. FOUR=1: two machines, two people at each (--net-people 2: players 1 and 3 the host's, 2 and
+# 4 the other's). MACHINES=4: four machines, one at each (players 1 to 4 in the order they came, the joining machines
+# started a moment apart; their lines of the chat go through the host). MACHINES=3: three, the host's two (players 1 and
+# 3) and one at each of the others (2, then 4).
 #
-#   [ARCADE=1] [FOUR=1] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]   (make GAME=<id> check-online: from the repository's top, after `make`; ROM=your set)
+#   [ARCADE=1] [FOUR=1 | MACHINES=3|4] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]   (make GAME=<id> check-online: from the repository's top, after `make`; ROM=your set)
 set -eu
 GAME=${GAME:?which game: GAME=<id>}
 ROM=${ROM:-rom/$GAME}
@@ -31,75 +33,121 @@ JOIN_ROM=${JOIN_ROM:-$ROM}
 frames=${1:-3000}
 arcade=${ARCADE:-}
 four=${FOUR:-}
+machines=${MACHINES:-2}
+[ -n "$four" ] && machines=2
+case "$machines" in 2|3|4) ;; *) echo "MACHINES: 2, 3 or 4"; exit 1 ;; esac
+[ "$machines" -gt 2 ] && four=1
 work=work/$GAME/check
 mkdir -p "$work"
-: > "$work/online-host.ini"
-: > "$work/online-join.ini"
-rm -f "$work/online-host.txt" "$work/online-join.txt" "$work/online-host.eeprom" "$work/online-join.eeprom"
+# (the joining machines: join, or join1 to join3)
+joiners=join
+[ "$machines" -gt 2 ] && joiners=$(seq -f 'join%g' 1 $((machines - 1)) | paste -sd' ' -)
+for name in host $joiners; do
+    : > "$work/online-$name.ini"
+    rm -f "$work/online-$name.txt" "$work/online-$name.eeprom"
+done
 # (the features that change play, as tools/check_rollback.sh has them, but for the custom colours: each player's own)
 play=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '($2=="Game"||$2=="Cheats"||$2=="Display") && NF==5 &&
     $1 !~ /^(display_|window_size|run_ahead|custom_soundtrack|widescreen_walls|custom_colours)/ {print $1}' | paste -sd, -)
 play="${play:+$play,}widescreen"
-seats=1
+# (the people at each machine, and the made-up play's players)
+hostPeople=1 joinPeople=1
 if [ -n "$four" ]; then
     # (the on-or-off features marked for matches: kFeatureMatch, 512 in --list-features's flags)
     modes=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' 'NF==5 && int($3 / 512) % 2 == 1 {print $1}' | paste -sd, -)
     play="$play,tag_team=2${modes:+,$modes}"
-    seats=2
+    [ "$machines" -le 3 ] && hostPeople=2
+    [ "$machines" = 2 ] && joinPeople=2
 fi
-# (the match has them but for the cheats, which are off on both sides: the replay is given the same)
+# (the match has them but for the cheats, which are off on all sides: the replay is given the same)
 cheats=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$2=="Cheats" {print $1}')
 match=$(printf '%s\n' "$play" | tr ',' '\n' | grep -vxF "$cheats" | paste -sd, -)
 port=$((7900 + RANDOM % 1000))
-side() { # host | join, then the program's arguments
+side() { # host | join..., then the program's arguments
     name=$1; shift
-    rom=$ROM; [ "$name" = join ] && rom=$JOIN_ROM
+    rom=$ROM; [ "$name" != host ] && rom=$JOIN_ROM
     "build/$GAME/$GAME" --rom "$rom" --headless --frames "$frames" --settings "$work/online-$name.ini" \
         --eeprom "$work/online-$name.eeprom" --hash-log "$work/online-$name.txt" --net-fake 50:25:5 "$@" 2> "$work/online-$name.err"
 }
-side host --auto "11:0:$seats" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
-    --net-name "Host P1" --net-say "hello from the host" &
-host=$!
+named() { # host | join... -> its name
+    case "$1" in host) echo "Host P1" ;; join) echo "Joiner" ;; *) echo "Joiner ${1#join}" ;; esac
+}
+side host --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
+    --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" &
+pids=$!
 if [ -n "$arcade" ]; then sleep 4; else sleep 0.5; fi
 status=0
-side join --auto "12:0:$seats" --join "127.0.0.1:$port" --net-name "Joiner" --net-say "good luck!" || { echo "FAILED: the joining side stopped"; tail -3 "$work/online-join.err"; status=1; }
-wait "$host" || { echo "FAILED: the host stopped"; tail -3 "$work/online-host.err"; status=1; }
-# (each side's log ends where it last had the other's controls: the shorter is what both have)
-lines=$(wc -l < "$work/online-host.txt" | tr -d ' ')
-joined=$(wc -l < "$work/online-join.txt" | tr -d ' ')
-[ "$joined" -lt "$lines" ] && lines=$joined
+n=0
+for name in $joiners; do
+    n=$((n + 1))
+    side "$name" --auto "$((11 + n)):0:$joinPeople" --join "127.0.0.1:$port" --net-people "$joinPeople" --net-name "$(named "$name")" \
+        --net-say "$((90 + 30 * n)):good luck from $(named "$name")!" &
+    pids="$pids $!"
+    sleep 0.7 # (so that each comes after the one before: their players go by it)
+done
+set -- host $joiners
+for pid in $pids; do
+    wait "$pid" || { echo "FAILED: the $1 stopped"; tail -3 "$work/online-$1.err"; status=1; }
+    shift
+done
+# (each machine's log ends where it last had every other's controls: the shortest is what all have)
+lines=$frames
+for name in host $joiners; do
+    had=$(wc -l < "$work/online-$name.txt" | tr -d ' ')
+    [ "$had" -lt "$lines" ] && lines=$had
+done
 if [ "$lines" -lt $((frames - 30)) ]; then
-    echo "FAILED: only $lines frames had both players' controls"
+    echo "FAILED: only $lines frames had every player's controls"
     status=1
-elif cmp -s <(head -n "$lines" "$work/online-host.txt") <(head -n "$lines" "$work/online-join.txt"); then
-    echo "ok: the two sides the same over $lines frames, with $play"
 else
-    echo "FAILED: the two sides differ from frame $(diff <(head -n "$lines" "$work/online-host.txt") <(head -n "$lines" "$work/online-join.txt") | grep '^<' | head -1 | cut -d' ' -f2)"
-    status=1
+    same=1
+    for name in $joiners; do
+        if ! cmp -s <(head -n "$lines" "$work/online-host.txt") <(head -n "$lines" "$work/online-$name.txt"); then
+            echo "FAILED: the host and the $name differ from frame $(diff <(head -n "$lines" "$work/online-host.txt") <(head -n "$lines" "$work/online-$name.txt") | grep '^<' | head -1 | cut -d' ' -f2)"
+            same=0
+            status=1
+        fi
+    done
+    [ "$same" = 1 ] && echo "ok: the $machines machines the same over $lines frames, with $play"
 fi
-# (each side knows both names, and has the other's line of the chat: sent straight to it, through the lost packets)
-for name in host join; do
-    if ! grep -q '^online: player 1 Host P1, player 2 Joiner$' "$work/online-$name.err"; then
-        echo "FAILED: the $name doesn't have both players' names"
+# (every machine knows every player's name, and has every other machine's line of the chat: sent straight to it, or
+# through the host, through the lost packets)
+case "$machines$four" in
+    2) players="player 1 Host P1, player 2 Joiner" ;;
+    21) players="player 1 Host P1, player 2 Joiner, player 3 Host P1, player 4 Joiner" ;;
+    31) players="player 1 Host P1, player 2 Joiner 1, player 3 Host P1, player 4 Joiner 2" ;;
+    41) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 3" ;;
+esac
+for name in host $joiners; do
+    if ! grep -qxF "online: $players" "$work/online-$name.err"; then
+        echo "FAILED: the $name doesn't have every player's name ($players)"
         status=1
     fi
 done
 if [ -n "$four" ]; then
-    # (each machine two of the four)
-    if grep -q '^online: the match is on: you are players 1 and 3 ' "$work/online-host.err" &&
-        grep -q '^online: the match is on: you are players 2 and 4 ' "$work/online-join.err"; then
-        echo "ok: a match of four, two players at each machine"
-    else
-        echo "FAILED: not two players at each machine"
-        status=1
-    fi
+    # (the four at their machines: each machine's players as said)
+    case "$machines" in
+        2) where="host=players 1 and 3,join=players 2 and 4" ;;
+        3) where="host=players 1 and 3,join1=player 2,join2=player 4" ;;
+        4) where="host=player 1,join1=player 2,join2=player 3,join3=player 4" ;;
+    esac
+    placed=1
+    IFS=, read -ra items <<< "$where"
+    for item in "${items[@]}"; do
+        name=${item%%=*} who=${item#*=}
+        grep -q "^online: the match is on: you are $who " "$work/online-$name.err" || { echo "FAILED: the $name is not $who"; placed=0; status=1; }
+    done
+    [ "$placed" = 1 ] && echo "ok: a match of four at $machines machines ($(echo "$where" | sed 's/=/: /g; s/,/, /g'))"
 fi
-if grep -q '^online: chat: Joiner: good luck!$' "$work/online-host.err" && grep -q '^online: chat: Host P1: hello from the host$' "$work/online-join.err"; then
-    echo "ok: the names and the chat came across"
-else
-    echo "FAILED: the chat didn't come across"
-    status=1
-fi
+heard=1
+for name in host $joiners; do
+    for other in host $joiners; do
+        [ "$other" = "$name" ] && continue
+        line="good luck from $(named "$other")!"; [ "$other" = host ] && line="hello from the host"
+        grep -qxF "online: chat: $(named "$other"): $line" "$work/online-$name.err" || { echo "FAILED: the $name didn't hear the $other"; heard=0; status=1; }
+    done
+done
+[ "$heard" = 1 ] && echo "ok: the names and the chat came across"
 if [ -n "$arcade" ]; then
     # (the host played before the other side came: the match began from there)
     played=$(sed -n 's/^online: the match begins after \([0-9]*\) frames of the host.s play.*/\1/p' "$work/online-host.err")
@@ -109,7 +157,7 @@ if [ -n "$arcade" ]; then
     else
         echo "ok: the match began after $played frames of the host's own play"
     fi
-    for name in host join; do
+    for name in host $joiners; do
         echo "$name: $(grep '^online: frame' "$work/online-$name.err" | tail -1 | sed 's/^online: //')"
     done
     exit $status
@@ -124,7 +172,7 @@ else
     echo "FAILED: the match and its replay differ from frame $(diff <(head -n "$lines" "$work/online-host.txt") <(head -n "$lines" "$work/online-replay.txt") | grep '^<' | head -1 | cut -d' ' -f2)"
     status=1
 fi
-for name in host join; do
+for name in host $joiners; do
     echo "$name: $(grep '^online: frame' "$work/online-$name.err" | tail -1 | sed 's/^online: //')"
 done
 exit $status

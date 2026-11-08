@@ -74,8 +74,8 @@ Every fighting game has a full training mode, from the in-game menu (not yet the
 
 ## Online play
 
-Two players on two machines, with **rollback** netcode. Any mix of macOS, Linux, the Steam Deck and Windows can play
-each other.
+Two players on two machines, or four on up to four in the tag-team games, with **rollback** netcode. Any mix of macOS,
+Linux, the Steam Deck and Windows can play each other.
 
 - **Host** a match from the launcher, or from the game you're playing (its menu's **Online** page: you play on until
   someone joins), and give the other player its **code**: they type it on the launcher's **Online** page. If you've
@@ -88,12 +88,12 @@ each other.
   (best effort: the same set is surest).
 - Each player presses Start to come in, as at the arcade. The match uses the host's board settings (difficulty,
   timer, rounds); cheats are off.
-- **Four players**: in the tag-team games, a 2 vs 2 match is two people at each machine (players 1 and 3 at the host's,
-  2 and 4 at the other).
-- **On screen:** both players' **names**, the ping (and the input delay, if you like), and the **win streak** of a
+- **Four players**: in the tag-team games, with Tag team at 2 vs 2 on the host, a match is four people, each on their
+  own machine or two at a machine (**People at this machine** on the Online page), all joining with the one code.
+- **On screen:** the players' **names**, the ping (and the input delay, if you like), and the **win streak** of a
   player who keeps winning.
-- **Chat** with the other player during a match: press T (or a gamepad's right stick, or the touch screen's Chat) and
-  type, on a keyboard or your system's on-screen keyboard. It goes straight between the two games.
+- **Chat** with the other players during a match: press T (or a gamepad's right stick, or the touch screen's Chat) and
+  type, on a keyboard or your system's on-screen keyboard. It goes straight between the games.
 - A dropped connection waits for the other player to come back with the same code.
 
 **[More about online play →](docs/ONLINE.md)**: the lobby, the waiting room, joining by address, and how rollback works.

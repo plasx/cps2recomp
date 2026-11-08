@@ -68,6 +68,11 @@ bool Routing() {
     return Chosen() != kOff && !(g_d.otherMode && g_d.otherMode());
 }
 
+int OnPoint(int side) {
+    const int point = Routing() && g_d.onPoint ? g_d.onPoint(side) : -1;
+    return point == 0 || point == 1 ? Person(side, point) : -1;
+}
+
 uint16_t Held(int person) {
     return person >= 0 && person < Machine::kMaxPlayers ? g_held[person] : 0;
 }
@@ -115,8 +120,7 @@ void Frame(Machine &) {
         g_d.labelEnds(left, right);
     }
     for (int side = 0; side < 2; side++) {
-        const int point = g_d.onPoint ? g_d.onPoint(side) : -1;
-        const int person = point == 0 || point == 1 ? Person(side, point) : -1;
+        const int person = OnPoint(side);
         if (person >= 0) {
             const std::string text = "P" + std::to_string(person + 1);
             lines.push_back({side == 0 ? left : right, g_d.labelY, side == 0 ? -1 : 1, text});

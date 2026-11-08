@@ -83,8 +83,8 @@ puts a P1-P4 label under each side's bars. A game describes where the point char
 `tag::Held` is what each of the four holds before the routing, for a game's mode in which each character reads its own
 person's controls, both of a team's at once when both are in the fight (Marvel vs. Capcom's Cross Fever:
 `games/mvsc/src/crossfever.cpp`).
-Online the host's choice is the match's (`kFeatureMatch`), and a 2 vs 2 match has two people at each machine
-(`port/netplay.h`, [ONLINE.md](ONLINE.md)).
+Online the host's choice is the match's (`kFeatureMatch`), and a 2 vs 2 match is four people on up to four machines,
+one or two at each (`port/netplay.h`, [ONLINE.md](ONLINE.md)).
 
 ## The fighting modes
 

@@ -1,7 +1,8 @@
 # The online service
 
-Online play (`port/netplay.h`) is two copies of the game sending each other their players' controls directly. This
-service only introduces them: a host asks it for a code; the other player gives the code, and each is told where the
+Online play (`port/netplay.h`) is copies of the game sending each other their players' controls directly: two, or up to
+four in a match of four (the tag-team games' 2 vs 2), whose joining machines each reach the host. This service only
+introduces them: a host asks it for a code; each other player gives the code, and the host and they are told where the
 other can be reached. Nothing of a match goes through it. It is a [Cloudflare Worker](https://developers.cloudflare.com/workers/)
 with a [Durable Object](https://developers.cloudflare.com/durable-objects/) for each match (`src/index.js`), within
 Cloudflare's free plan.
@@ -10,18 +11,24 @@ How the two meet:
 
 1. Each game asks a public STUN server (Cloudflare's, or Google's) what address and port its UDP socket is seen from
    on the internet: the router's, for a machine behind one.
-2. The host sends that and its addresses on its own networks to `POST /v1/host`, and is given a code (`K7Q-M2X`,
+2. The host sends that and its addresses on its own networks to `POST /v1/host`, with the players its match is for
+   (`players`: 2, or 4) and how many of them play at its machine (`here`: 1, or 2), and is given a code (`K7Q-M2X`,
    six letters and digits; no 0, O, 1, I or L). It asks `GET /v1/host/CODE` every 2 seconds, every 5 after two
-   minutes and every 10 after ten (the joiner waits 30 seconds to hear from it).
-3. The other player sends the code and its own addresses to `POST /v1/join/CODE`, and is given the host's. The host's
-   next question gives it theirs. A code lasts 30 minutes (a host still waiting then has the same code again), and can
-   be joined once; a code for another game, or for
-   another build of the game, is turned away.
+   minutes and every 10 after ten (a joining player waits 30 seconds to hear from it), until everyone has come.
+3. Each other player sends the code, its own addresses and the people at its machine (`people`: 1, or 2 in a match of
+   four) to `POST /v1/join/CODE`, and is given the host's addresses and a number of its own (`ticket`), which it says
+   to the host in its hello. The host's next question gives it each who joined (`joiners`: "TICKET ADDRESS
+   ADDRESS..."), and says back (`gone=TICKET,...`) those who went before the match began, or never came in 30
+   seconds: their places are free again. A code lasts 30 minutes (a host still waiting then has the same code again),
+   and can be joined while its match has room (once, for a match of two); a code for another game, or for another
+   build of the game, is turned away. (A host from before `players`, protocol 7, has a match of two, and is told the
+   one who joined as `addresses`, as it always was.)
 4. Each side sends to every address of the other's. The host's packets open its router to the other's, whose hellos
-   then come through (UDP hole punching); the first address that answers is the match's.
+   then come through (UDP hole punching); the first address that answers is the match's. In a match of four the host
+   does so for each who joins, and they never need to reach each other: the host passes on what each sends.
 
 A host that asks for it (`--net-list`, with `--net-name`) is also in the **lobby**: a Durable Object keeping every
-game's listed matches whose host has asked about them in the last 25 seconds, until someone joins, in memory only
+game's listed matches whose host has asked about them in the last 25 seconds, until they are full, in memory only
 (a match tells it at most every 10 seconds).
 `GET /v1/lobby?protocol=N` lists them all, each with its game (the launcher's Online page); `GET /v1/lobby/GAME?protocol=N`
 one game's (a game page's Online card).
@@ -32,7 +39,7 @@ have and whether they can be invited; with `lobby: true` the answer has every ga
 page asks once), gone 30 seconds after the last check-in, and kept in memory only (a room let go is made again by the next check-ins). Each is
 known by an id the service makes from a secret only their launcher has, and shown by name only. A host can name one
 to invite (`invite` and `from` in `POST /v1/host`): the Match gives the invitation to the room while the host asks
-about its match, and takes it back when someone joins; a player declines with `POST /v1/room/decline`, which the
+about its match, and takes it back when the match is full; a player declines with `POST /v1/room/decline`, which the
 host's next question says (`invite: "declined"`, or `"away"` if it couldn't be given). Players block each other with
 ids their launchers keep, sent with each check-in.
 

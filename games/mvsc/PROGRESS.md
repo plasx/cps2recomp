@@ -231,15 +231,33 @@ Cross Fever and four players online (2026-11-08, on Linux, in a tree after `make
   (specials, hypers, a tag, the special partner, Start, held directions) changed what it did.
 - Online, a match of four whose movie fills the gauges by play, with both teams' Duo Team Attacks: the host's and the
   joiner's hash logs the same over 5,697 frames (packets 50 ms late, give or take 25, one in twenty lost), the record
-  replayed the same, and in it every check above. (A build that let `--movie` be each machine's controllers for this
-  run only: online play refuses movies.)
+  replayed the same, and in it every check above. The same movie split into one a player and played at four machines
+  (one player at each, joining in turn): the four hash logs the same over 5,690 frames, and the match the same as two
+  machines of two playing it, hash for hash over 5,693 frames and in its record of the four. (A build that let
+  `--movie` be each machine's controllers for this run only: online play refuses movies.)
 - A stand-in of the panel hook that gives every record the side's own word: the same hash logs as the board's code
   over versus and 2 vs 2.
 - `check-rollback FRAMES=12000`, and with `FEATURES=tag_team=2,cross_fever`: pass (3,801 rollbacks each). The Cross
   Fever movie from a state saved at frame 4,160 (the gauges full: `--poke` and rollback don't mix), straight and with
   `--rollback-test 9`: the same over 5,740 frames (107 rollbacks), drawn and not.
-- `check-online`, and `FOUR=1` (2 vs 2 and Cross Fever on the host, two players at each machine): pass; co-op vs.
-  computer online with Cross Fever (one player at each machine) the same.
+- `check-online` at 3,000 frames: two players (the two the same over 2,996 frames), `FOUR=1` (2 vs 2 and Cross Fever on
+  the host, two machines of two: 2,998), `MACHINES=3` (the host's two and two machines of one: 2,991) and `MACHINES=4`
+  (four machines of one, players 1 to 4 as they came: 2,987), each with every name and every other machine's line of
+  the chat, and the record of the four replayed the same; `ARCADE=1`, alone and with `MACHINES=4` (the match begun after
+  243 frames of the host's play: 2,996 and 2,990). Co-op vs. computer online with Cross Fever (one player at each
+  machine) the same over 2,995. Two players: the same rollbacks and waits as the build before four machines, the two
+  run in turn.
+- Four machines by a code, through the introduction service run on this machine (`online/src/index.js` in Node, its
+  Durable Objects stood in for in memory): one that joined at the service but never reached the host and one that
+  reached it and was killed both had their places given back (the host's `gone`, after 30 seconds and after 5 of
+  quiet), one more turned away while the match was full, then the fourth let in and the match of four begun. The
+  service alone: 27 checks (a host from before `players` as it was, room, full, the numbers, `gone`, the lobby, the
+  same code again).
+- A fifth machine turned away ("That match is full."), and a machine of two when one place was left; one leaving in a
+  match of four: every machine says who left; one killed: the host says it lost the connection to it, and the other
+  two say so. In a window (SDL's offscreen video): one leaving, the host waiting again with its address, the other two
+  back by themselves and a new one taking the place, the match again with all four; the in-game menu's Host a match
+  with three machines joining (the match from the board's reset; after it the host's own game, still hosted).
 - The ladder at 606 and 638 frames a second against 585 and 610 without these sources, the two run in turn.
 
 ## Not checked by a person
@@ -251,7 +269,8 @@ between the fights too: this game's show mixes them more than the earlier games'
 
 ## Next
 
-- Online play is the toolkit's; this game has not been tried over a network (four players neither: localhost only).
+- Online play is the toolkit's; this game has not been tried over a network (four players at up to four machines
+  neither: localhost only, and the introduction service's change run in Node, not on Cloudflare).
 - Cross Fever: the Dreamcast's four-player choosing and menus (here the board's choosing, a person a pick). Not
   copied: after a round the Dreamcast sets both selectors back to 0 (8C054692, on to the next round) while a side's
   swapped picks stay, so there the people would play each other's characters from the next round on; here each keeps

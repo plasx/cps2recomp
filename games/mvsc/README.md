@@ -12,7 +12,7 @@ call in.
 It has everything the other fighting games here have: a full **training mode** (hit boxes, frame data and a frame
 meter, input display, combo readout, a dummy that records, replays and guards), the **alternative modes** (attract
 mode, the stage and model viewers, survival, endless battle, ring out), **tag-team co-op and 2 vs 2** for up to four
-players (online too, two at each machine), the Dreamcast's **Cross Fever**, **widescreen**, **custom colours** with a colour editor, the **hidden characters** with no code, and the features every game shares: free play, straight to the
+players (online too, each on their own machine or two at one), the Dreamcast's **Cross Fever**, **widescreen**, **custom colours** with a colour editor, the **hidden characters** with no code, and the features every game shares: free play, straight to the
 title, the board's operator settings, cheats, save states, run-ahead, arcade timing, a custom soundtrack.
 
 > **Beta.** The game plays from start to ending and its code is checked instruction by instruction, but it has
@@ -139,8 +139,9 @@ modes page (or the launcher's Features page) chooses how.
   playing the character they chose.
 - A small label under each side's bars (P1-P4) says who is on point.
 - The launcher's Controllers page has keys and buttons for four players.
-- Online, a 2 vs 2 match is two people at each machine: the host's are players 1 and 3, the other side's players 2 and
-  4, each with their machine's player 1 or player 2 controls ([online play](../../docs/ONLINE.md)).
+- Online, a 2 vs 2 match is four people on up to four machines, all joining with the host's code: each on their own
+  machine, or two at one with its player 1 and player 2 controls (People at this machine, on the Online page). The
+  host's are players 1 (and 3), the others' the rest in the order they came ([online play](../../docs/ONLINE.md)).
 
 ![The model viewer: Mega Man on white, twice his size](../../docs/screenshots/mvsc/model-viewer.png)
 

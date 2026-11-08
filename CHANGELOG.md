@@ -35,12 +35,20 @@
 - The toolkit: `fight::SetButtonNames` (a game's own names for its buttons in the input display and the frame data
   log) and `colours::Description::lineAddress` (a game whose colour set's palettes are each in a table of their own).
 
-- **Online: four players, two at each machine** (issue #70): with Tag team at 2 vs 2 on the host (X-Men vs. Street
-  Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs. Capcom), a match is four people: the host's machine has
-  players 1 and 3, the other players 2 and 4, each with that machine's player 1 or player 2 controls. Tag team is the
-  host's in a match now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game
-  marks for matches (`kFeatureMatch`). The protocol is 7: the welcome says how many play at each machine, and each
-  frame's controls are each one's. `make GAME=<id> check-online FOUR=1` plays a match of four over localhost.
+- **Online: four players, on up to four machines** (issue #70): with Tag team at 2 vs 2 on the host (X-Men vs. Street
+  Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs. Capcom), a match is four people on two, three or four
+  machines, all joining with the host's one code (or its address): **People at this machine** (the Online page, under
+  In a match) says whether one or two of the four play at each, two with that machine's player 1 and player 2
+  controls. The match begins when all four are there: the host's are players 1 (and 3), the others' the rest in the
+  order they came. The host is between the joining machines: each sends it its controls, its hashes and its chat, and
+  it sends each the others' with its own. One leaving or dropping ends the match for all, saying who; in a window the
+  host waits again with the same code and the others go back to it by themselves. Tag team is the host's in a match
+  now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game marks for matches
+  (`kFeatureMatch`). The protocol is 8. The introduction service (`online/`) lets a code be joined by as many as its
+  match has room for, each given a number that the host says back if they go before the match begins (their place
+  is free again); a host from before is told the one who joined, as it always was. `make GAME=<id> check-online
+  MACHINES=4` plays a match at four machines over localhost (`MACHINES=3`: the host's two and two of one; `FOUR=1`:
+  two machines of two).
 - **Marvel vs. Capcom: Cross Fever**, the Dreamcast's mode for four people, on the Alternative modes page with Tag team
   on: each character is moved by its own person all the time, both of a team's in a Duo Team Attack, which lasts twice
   as long, and the person on point tags out, as on the Dreamcast (`games/mvsc/src/crossfever.cpp`; `fight/tag.h`'s
