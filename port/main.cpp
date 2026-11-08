@@ -2592,8 +2592,10 @@ void Port::RunFrame() {
         Step(pressed); // (--net-arcade: the host playing while it waits)
         cameIn = cameIn || (pressed[0] & kStart);
     } else if (net) {
-        net->Frame(*this, pressed[0]); // (this side's player plays with player 1's controls)
-        cameIn = cameIn || (pressed[0] & kStart);
+        net->Frame(*this, pressed); // (this side's player plays with player 1's controls; a second with player 2's)
+        for (int seat = 0; seat < net->Seats(); seat++) {
+            cameIn = cameIn || (pressed[seat] & kStart);
+        }
         otherIn = otherIn || (machine->players[1 - net->Local()] & kStart);
         Streaks();
     } else if (opt.rollbackTest) {

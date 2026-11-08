@@ -68,6 +68,13 @@ cps2recomp-launcher --play sfa3 -- --join CODE             # the other player: t
   play, arcade timing, widescreen, hidden characters...), for the match only: the other player's own are left as they
   are. The host chooses them before hosting (the launcher's pages, or the in-game menu before choosing Host); during
   the match the in-game menu shows them as the match has them and doesn't change them.
+- **Four players, two at each machine** (the tag-team games: X-Men vs. Street Fighter, Marvel Super Heroes vs. Street
+  Fighter, Marvel vs. Capcom): with **Tag team** at **2 vs 2** on the host (Alternative modes), a match is four people,
+  two at each machine. The host's are players 1 and 3, the other side's players 2 and 4, each machine's with its own
+  player 1 and player 2 controls; each person chooses and plays their own character, as 2 vs 2 does on one machine.
+  The host's Tag team is the match's, and so are the modes made for it (Marvel vs. Capcom's Cross Fever). With **Co-op
+  vs. computer** the two players are one team against the computer, one at each machine. The rest is as for two:
+  rollback, the checks, the names (each machine's under its side's life bar).
 - **Rollback**: each side runs the game with both players' controls, its own player's held back 2 frames (as a
   board's game might be; `--net-delay N` on the host, 0 to 8), and the other player's guessed until they come. When
   a guess was wrong, the game goes back to that frame and runs on again with the real ones, unseen and unheard, in
@@ -95,4 +102,4 @@ cps2recomp-launcher --play sfa3 -- --join CODE             # the other player: t
 - **Leaving a match**: Esc, or the gamepad's menu button, asks **Leave the match?** over the game (which goes on);
   Confirm leaves, Back stays.
 - **Off during a match**: the cheats (on both sides, for a fair match), the in-game menu, save states, pause, the speed, run-ahead, the training mode and the
-  other modes (endless battle, tag team, the viewers). A match ends when either player closes their game.
+  other modes (endless battle, the viewers). A match ends when either player closes their game.

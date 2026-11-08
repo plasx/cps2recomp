@@ -88,6 +88,8 @@ each other.
   (best effort: the same set is surest).
 - Each player presses Start to come in, as at the arcade. The match uses the host's board settings (difficulty,
   timer, rounds); cheats are off.
+- **Four players**: in the tag-team games, a 2 vs 2 match is two people at each machine (players 1 and 3 at the host's,
+  2 and 4 at the other).
 - **On screen:** both players' **names**, the ping (and the input delay, if you like), and the **win streak** of a
   player who keeps winning.
 - **Chat** with the other player during a match: press T (or a gamepad's right stick, or the touch screen's Chat) and

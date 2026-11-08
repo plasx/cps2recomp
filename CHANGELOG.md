@@ -35,6 +35,13 @@
 - The toolkit: `fight::SetButtonNames` (a game's own names for its buttons in the input display and the frame data
   log) and `colours::Description::lineAddress` (a game whose colour set's palettes are each in a table of their own).
 
+- **Online: four players, two at each machine** (issue #70): with Tag team at 2 vs 2 on the host (X-Men vs. Street
+  Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs. Capcom), a match is four people: the host's machine has
+  players 1 and 3, the other players 2 and 4, each with that machine's player 1 or player 2 controls. Tag team is the
+  host's in a match now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game
+  marks for matches (`kFeatureMatch`). The protocol is 7: the welcome says how many play at each machine, and each
+  frame's controls are each one's. `make GAME=<id> check-online FOUR=1` plays a match of four over localhost.
+
 ## 1.4.0
 
 **Six more games, and every menu in Portuguese and Spanish**: Street Fighter II: Champion Edition, Street Fighter II:

@@ -20,6 +20,7 @@
 #include "../recomp-common/launcher/src/online.h"
 #include "../recomp-common/launcher/src/run_program.h"
 #include "../runtime/game.h"
+#include "../fight/tag.h"
 #include "port.h"
 
 #include <SDL3/SDL.h>
@@ -115,12 +116,15 @@ namespace {
     // Which features the joining side takes from the host: those that change how the game plays. Each player's
     // own: how the picture is shown and the sound. Off for both: the cheats (a fair match), and the rest (the
     // alternative modes, training, the viewers: kept apart from the save state, or not worked out for two machines
-    // yet), and run-ahead (rollback does what it does).
+    // yet), and run-ahead (rollback does what it does). A mode marked for matches (kFeatureMatch: tag team) is the host's.
     enum class Share { Host, Own, Off, Keep };
     Share Shared(const Feature &feature) {
         const std::string category = feature.category, name = feature.name;
         if (name == "run_ahead" || name == "custom_colours") {
             return Share::Off; // (custom colours: each player's own library, which the other side has not)
+        }
+        if (feature.flags & kFeatureMatch) {
+            return Share::Host;
         }
         if (name.rfind("widescreen", 0) == 0 || category == "Game" || category == "Board") {
             return Share::Host;
@@ -168,6 +172,11 @@ namespace {
     }
     std::string SetName(const Port &port) {
         return port.roms.name.empty() ? port.roms.set : port.roms.set + " (" + port.roms.name + ")";
+    }
+    // A side's players as said: "player 1", or "players 1 and 3" in a match of four
+    std::string SidePlayers(int side, int seats) {
+        return seats > 1 ? "players " + std::to_string(Netplay::Player(side, 0) + 1) + " and " + std::to_string(Netplay::Player(side, 1) + 1)
+                         : "player " + std::to_string(side + 1);
     }
     // A match's code as the service keeps it ("K7QM2X"), from what was typed ("k7q-m2x"), or "" if it is not one
     // (an address has a dot or a colon)
@@ -441,6 +450,8 @@ void Netplay::StartAt(int frames) {
 // The welcome for the one who has come: the delay, the board settings, the features that change play, and the game
 // as it is now (the board's reset, or, with --net-arcade, wherever the host's play has got to)
 void Netplay::Welcome(Port &port) {
+    // (a match of four, as the match's features have it: tag team's 2 vs 2, routed; two people at each machine)
+    seats = tag::Chosen() == tag::kVersus && tag::Routing() ? 2 : 1;
     Writer welcome(kWelcome);
     welcome.U16(kProtocol);
     welcome.U8(static_cast<uint8_t>(delay));
@@ -480,6 +491,7 @@ void Netplay::Welcome(Port &port) {
     // (this side's set: the other side says so when it has another region's)
     welcome.Text(SetName(port));
     welcome.Text(settings.name);
+    welcome.U8(static_cast<uint8_t>(seats)); // (the players at each machine)
     greeting = welcome.out;
 }
 
@@ -911,7 +923,8 @@ int Netplay::Waiting(Port &port, std::string &error) {
         }
         if (got >= 0) {
             lastHeard = now;
-            fprintf(stderr, "online: the match is on: you are player 1 (%d frame%s of delay)\n", delay, delay == 1 ? "" : "s");
+            fprintf(stderr, "online: the match is on: you are %s (%d frame%s of delay)\n", SidePlayers(local, seats).c_str(), delay,
+                    delay == 1 ? "" : "s");
             return 1;
         }
         if (found && now - lastHeard > 5000) {
@@ -1021,7 +1034,8 @@ int Netplay::Waiting(Port &port, std::string &error) {
                 raw.erase(raw.begin(), raw.begin() + (program.at - raw.data()));
                 port.PutBackState(raw);
                 lastHeard = now;
-                fprintf(stderr, "online: the match is on: you are player 2 (%d frame%s of delay)\n", delay, delay == 1 ? "" : "s");
+                fprintf(stderr, "online: the match is on: you are %s (%d frame%s of delay)\n", SidePlayers(local, seats).c_str(), delay,
+                        delay == 1 ? "" : "s");
                 return 1;
             }
             continue;
@@ -1064,7 +1078,8 @@ int Netplay::Waiting(Port &port, std::string &error) {
         // (the host's set: where this side's is another region's, the match is played as the host's)
         const std::string hostSet = in.Text();
         theirName = in.Text();
-        if (!in.ok) {
+        seats = in.U8(); // (the players at each machine: the host's choice)
+        if (!in.ok || seats < 1 || seats > kMostSeats) {
             error = "The host's welcome did not make sense.";
             return -1;
         }
@@ -1139,7 +1154,9 @@ void Netplay::SendInputs() {
     out.U32(static_cast<uint32_t>(first));
     out.U8(static_cast<uint8_t>(localUpTo - first));
     for (uint64_t at = first; at < localUpTo; at++) {
-        out.U16(localInput[at % kInputs]);
+        for (int seat = 0; seat < seats; seat++) { // (each of this side's players')
+            out.U16(localInput[at % kInputs][seat]);
+        }
     }
     out.U16(static_cast<uint16_t>(static_cast<int16_t>(std::lround(std::clamp(ahead, -100.0, 100.0) * 100))));
     out.U32(static_cast<uint32_t>(lastHashFrame));
@@ -1188,9 +1205,12 @@ void Netplay::Take(const uint8_t *data, size_t size) {
     }
     const uint64_t frame = in.U32(), ack = in.U32(), first = in.U32();
     const unsigned count = in.U8();
-    uint16_t inputs[256];
+    Controls inputs[256];
     for (unsigned n = 0; n < count; n++) {
-        inputs[n] = in.U16();
+        inputs[n] = {};
+        for (int seat = 0; seat < seats; seat++) {
+            inputs[n][seat] = in.U16();
+        }
     }
     const double theirs = static_cast<int16_t>(in.U16()) / 100.0;
     const uint64_t hashFrame = in.U32();
@@ -1278,10 +1298,12 @@ bool Netplay::Ready(uint64_t frame) {
 void Netplay::Run(Port &port, uint64_t at, bool drawing) {
     Kept &k = kept[at % kKept];
     uint16_t players[Machine::kMaxPlayers] = {};
-    players[local] = localInput[at % kInputs];
     // (the other side's, or guessed as the last that came)
-    k.used = at < remoteUpTo ? remoteInput[at % kInputs] : remoteUpTo ? remoteInput[(remoteUpTo - 1) % kInputs] : 0;
-    players[remote] = k.used;
+    k.used = at < remoteUpTo ? remoteInput[at % kInputs] : remoteUpTo ? remoteInput[(remoteUpTo - 1) % kInputs] : Controls{};
+    for (int seat = 0; seat < seats; seat++) {
+        players[Player(local, seat)] = localInput[at % kInputs][seat];
+        players[Player(remote, seat)] = k.used[seat];
+    }
     port.machine->drawing = drawing;
     port.Step(players);
     port.machine->drawing = true;
@@ -1290,11 +1312,13 @@ void Netplay::Run(Port &port, uint64_t at, bool drawing) {
     }
 }
 
-void Netplay::Frame(Port &port, uint16_t controls) {
+void Netplay::Frame(Port &port, const uint16_t *controls) {
     const auto began = std::chrono::steady_clock::now();
     current = port.frame;
     const uint64_t frame = port.frame;
-    localInput[(frame + delay) % kInputs] = controls;
+    for (int seat = 0; seat < seats; seat++) {
+        localInput[(frame + delay) % kInputs][seat] = controls[seat];
+    }
     localUpTo = frame + delay + 1;
     // How far ahead of the other side this side is: the frame it is on, over what the other side said last
     ahead = ahead * 0.95 + (static_cast<double>(frame) - static_cast<double>(remoteFrame)) * 0.05;
@@ -1327,10 +1351,12 @@ void Netplay::Frame(Port &port, uint16_t controls) {
     for (uint64_t at = confirmed; at < upTo; at++) {
         const Kept &k = kept[at % kKept];
         if (!port.opt.movieRecord.empty()) {
-            // (--record: what both players held, as the frame had them, for the frames that have the real ones)
+            // (--record: what every player held, as the frame had them, for the frames that have the real ones)
             Movie::Pads pads{};
-            pads[local] = localInput[at % kInputs];
-            pads[remote] = remoteInput[at % kInputs];
+            for (int seat = 0; seat < seats; seat++) {
+                pads[Player(local, seat)] = localInput[at % kInputs][seat];
+                pads[Player(remote, seat)] = remoteInput[at % kInputs][seat];
+            }
             port.recMovie.changes[at] = pads;
         }
         if (port.hashFile) {

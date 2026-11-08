@@ -14,6 +14,7 @@ namespace cps2recomp::tag {
 namespace {
     Description g_d;
     std::vector<HudLine> g_labels; // (on the HUD now)
+    uint16_t g_held[Machine::kMaxPlayers] = {}; // (this frame's, as they came: Held)
 
     // The HUD's lines with the labels in place of the ones there
     void Label(std::vector<HudLine> labels) {
@@ -26,11 +27,6 @@ namespace {
         lines.insert(lines.end(), labels.begin(), labels.end());
         g_labels = std::move(labels);
         SetHud(std::move(lines));
-    }
-
-    // Whether the controls are routed now
-    bool Routing() {
-        return Chosen() != kOff && !(g_d.otherMode && g_d.otherMode());
     }
 
     // The person whose controls go to a side's panel now (-1: the side's first person, with the second's Start and
@@ -68,8 +64,16 @@ int Person(int side, int pick) {
     }
 }
 
+bool Routing() {
+    return Chosen() != kOff && !(g_d.otherMode && g_d.otherMode());
+}
+
+uint16_t Held(int person) {
+    return person >= 0 && person < Machine::kMaxPlayers ? g_held[person] : 0;
+}
+
 void BeforeFrame(Machine &machine) {
-    uint16_t held[Machine::kMaxPlayers];
+    uint16_t *const held = g_held;
     std::copy(std::begin(machine.players), std::end(machine.players), held);
     // (players 3 and 4 are on the lines of players 1's and 2's kicks: never on the board here)
     machine.players[2] = machine.players[3] = 0;
@@ -129,7 +133,7 @@ void Register(const Description &description) {
                                   "against the computer. 2 vs 2: players 1 and 3 against players 2 and 4. Each chooses one "
                                   "character (the first person first); in a fight the panel is whoever's character is on point, "
                                   "and the partner tags in with HP+HK. The labels under the bars say who is on point.",
-                                  0, {"Off", "Co-op vs. computer", "2 vs 2"}});
+                                  kFeatureMatch, {"Off", "Co-op vs. computer", "2 vs 2"}});
 }
 
 } // namespace cps2recomp::tag

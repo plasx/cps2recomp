@@ -10,10 +10,14 @@
 //
 // --host [PORT] waits for the other player; --join ADDRESS[:PORT] goes to them. The host is player 1. Before the
 // first frame the two make sure they are the same game, and the joining side takes the host's board settings
-// (the settings memory) and the features that change play (Game and Board, and widescreen); the cheats and the rest of
-// the alternative modes, training, run-ahead and the like stay off. Every so often each sends the other a hash of
-// the game as it was at a frame both have the real controls for; if the two differ, the games have come apart
-// (a desync), and the match stops, saying so.
+// (the settings memory) and the features that change play (Game and Board, and widescreen, and the modes marked for
+// matches: tag team); the cheats and the rest of the alternative modes, training, run-ahead and the like stay off.
+// Every so often each sends the other a hash of the game as it was at a frame both have the real controls for; if the
+// two differ, the games have come apart (a desync), and the match stops, saying so.
+//
+// A match of four (tag team's 2 vs 2) is two people at each machine: the host's are players 1 and 3, the joining side's
+// players 2 and 4, each machine's with its first two controllers (its players 1's and 2's). The host says so in the
+// welcome, and each frame's controls a side sends are each of its players'; the rest is as for two.
 #pragma once
 
 #include <array>
@@ -65,9 +69,11 @@ public:
     static constexpr int kDefaultPort = 7845;
     // The packets' layout (2: the host's state sent at the start); two copies must have the same to play, and the
     // lobby shows only matches of this one (the launcher asks with it too)
-    static constexpr int kProtocol = 6; // (3: the version said in the hello and to the service; 4: the welcome's flags;
+    static constexpr int kProtocol = 7; // (3: the version said in the hello and to the service; 4: the welcome's flags;
                                         // 5: the welcome's program words, so two regions' sets play together;
-                                        // 6: each player's name in the hello and the welcome, and the chat)
+                                        // 6: each player's name in the hello and the welcome, and the chat;
+                                        // 7: two players at each machine, as the welcome says, and each one's controls)
+    static constexpr int kMostSeats = 2;   // players at one machine
     static constexpr int kMostAhead = 8;   // frames run on guessed controls at most
     static constexpr int kKept = 16;       // states kept (more than the most a rollback goes back)
     static constexpr int kInputs = 128;    // controls kept, each side's
@@ -146,15 +152,24 @@ public:
         return delay;
     }
     uint64_t Silent() const;
-    // This side's player (0: player 1)
+    // This side's player (0: player 1), or its side (0: the host's) in a match of four
     int Local() const {
         return local;
+    }
+    // The players at each machine (1, or 2 in a match of four: its first and its second), and which of the board's
+    // players (0-3) a side's are: side 0's players 1 and 3, side 1's 2 and 4
+    int Seats() const {
+        return seats;
+    }
+    static int Player(int side, int seat) {
+        return side + 2 * seat;
     }
     // Each tick: what has come in, sent again what has not been taken; false if the next frame must wait (the
     // other side's controls are too far behind, or this side is ahead of the other in time)
     bool Ready(uint64_t frame);
-    // The frame, with this side's player's controls: rollback first if a guess was wrong, then the frame itself
-    void Frame(Port &port, uint16_t controls);
+    // The frame, with this side's players' controls (Seats() of them, its first player's first): rollback first if a
+    // guess was wrong, then the frame itself
+    void Frame(Port &port, const uint16_t *controls);
     // Why the match is over ("" while it goes on); and whether that is a failure (a desync, the other side lost)
     std::string ended;
     bool failed = false;
@@ -221,15 +236,18 @@ private:
     std::string Addresses() const; // (this side's, as JSON)
     NetAddress peer;
     int local = 0, remote = 1;
+    int seats = 1; // (the host's choice: the welcome says it)
     int delay = kDefaultDelay;
-    std::array<uint16_t, kInputs> localInput{}, remoteInput{};
+    // A side's controls for a frame: each of its players'
+    using Controls = std::array<uint16_t, kMostSeats>;
+    std::array<Controls, kInputs> localInput{}, remoteInput{};
     uint64_t localUpTo = 0;  // this side's controls are known for the frames before this
     uint64_t remoteUpTo = 0; // ... and the other side's (all of them before it)
     uint64_t remoteAck = 0;  // the other side has this side's controls for the frames before this
     uint64_t remoteFrame = 0; // the frame the other side was on, last heard
     struct Kept {
         std::vector<uint8_t> state; // the game before the frame
-        uint16_t used = 0;          // the other side's controls it was run with
+        Controls used{};            // the other side's controls it was run with
         uint32_t hash = 0;          // the game after it, last run (when hashed)
     };
     std::array<Kept, kKept> kept;
