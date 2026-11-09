@@ -21,9 +21,9 @@
 # A match of four, for a game with tag team (fight/tag.h): the host has its 2 vs 2 on, and the modes marked for matches
 # (kFeatureMatch, on or off: games/mvsc's Cross Fever), each of the four with made-up play of their own; the record and
 # its replay have all four. FOUR=1: two machines, two people at each (--net-people 2: players 1 and 3 the host's, 2 and
-# 4 the other's). MACHINES=4: four machines, one at each (players 1 to 4 in the order they came, the joining machines
-# started a moment apart; their lines of the chat go through the host). MACHINES=3: three, the host's two (players 1 and
-# 3) and one at each of the others (2, then 4).
+# 4 the other's). MACHINES=4: four machines, one at each (players 1 to 4 in the order they came, each joining machine
+# started once the host has the one before; their lines of the chat go through the host). MACHINES=3: three, the host's
+# two (players 1 and 3) and one at each of the others (2, then 4).
 #
 #   [ARCADE=1] [FOUR=1 | MACHINES=3|4] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]   (make GAME=<id> check-online: from the repository's top, after `make`; ROM=your set)
 set -eu
@@ -72,10 +72,19 @@ side() { # host | join..., then the program's arguments
 named() { # host | join... -> its name
     case "$1" in host) echo "Host P1" ;; join) echo "Joiner" ;; *) echo "Joiner ${1#join}" ;; esac
 }
+said() { # FILE PATTERN: once a line of FILE has it (10 seconds at most)
+    for _ in $(seq 100); do
+        grep -q "$2" "$1" 2> /dev/null && return 0
+        sleep 0.1
+    done
+    return 1
+}
 side host --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
     --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" &
 pids=$!
-if [ -n "$arcade" ]; then sleep 4; else sleep 0.5; fi
+# (the joining side once the host waits: its socket is open by then, however long the game took to start)
+said "$work/online-host.err" '^online: Waiting for' || echo "(the host not waiting after 10 seconds)"
+[ -n "$arcade" ] && sleep 4
 status=0
 n=0
 for name in $joiners; do
@@ -83,7 +92,8 @@ for name in $joiners; do
     side "$name" --auto "$((11 + n)):0:$joinPeople" --join "127.0.0.1:$port" --net-people "$joinPeople" --net-name "$(named "$name")" \
         --net-say "$((90 + 30 * n)):good luck from $(named "$name")!" &
     pids="$pids $!"
-    sleep 0.7 # (so that each comes after the one before: their players go by it)
+    # (each once the one before has come, their players going by it)
+    [ "$machines" -gt 2 ] && { said "$work/online-host.err" "^online: $(named "$name") is here" || echo "(the $name not come after 10 seconds)"; }
 done
 set -- host $joiners
 for pid in $pids; do

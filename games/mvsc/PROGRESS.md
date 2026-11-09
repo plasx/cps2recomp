@@ -105,19 +105,25 @@ is FF4000 here), and the players' records 0x20 further on from +0x250 (health +2
 - **The Dreamcast's Cross Fever** (its 0.BIN, read with a disassembler; the board's routines matched by the work each
   does): its flag (8C4EC06C) is tested in 50 places, and those that change a fight are what `crossfever.cpp` does. Each
   character's stream is picked by its +275 (the board's +281: 8C029E40); each side's selector (8C4EC06D, 8C4EC06E) is
-  turned over where the bytes are swapped (8C02CAA2, 8C02CBFC, 8C02D234, 8C02D294), where a side starts with its second
-  character (8C03AA0C, 8C03AB3C), and at a Variable Counter's landing (8C02D5EE, the board's 0165C6; the bytes are
-  swapped later, while neither character reads its controls). The Duo Team Attack's time is taken off on odd steps
-  (8C02CF20). Every seventh step of a match the gauge routine (8C035DA2, the board's 01CD1E) is called with 1 for each
-  side's first character (8C03606A): a count of its own (8C1E24A8) goes up each time 8C036052 runs (once a step of a
-  match from its intro on, 8C0221E8's call: the board's 01CEAA from 00CEE2) and goes back to 0 at seven, in Cross Fever
-  only (it is never cleared otherwise, so the first add comes at once). The moves of a character off point are passed by only for its side's
-  held bit (8C03025C, the board's 018DB6), and the Dreamcast's step (8C024106, the board's 00D1EA) has no clearing of
-  its controls (the board's 00D4AC). The taunt tests the point person's controller's Start as held (8C032674); in the
-  Dreamcast's versus modes (8C4EBBAC set) the record's held word must also be that player's taunt button alone
-  (8C4EBF9A, light punch unless changed), as Start alone pauses the Dreamcast's game, in Cross Fever as in the rest. The
-  rest: the four players' choosing and menus, what comes after a match, the controllers' rumble, a pause when a
-  controller is pulled out, and places shared with the Dreamcast's other modes (its versus and training).
+  turned over wherever a fight swaps the bytes: a tag (8C02CAA2), the partner coming in for a character knocked out
+  (8C02CBFC), the end of a Duo Team Attack (8C02D234, 8C02D294) and a Variable Counter, at its landing (8C02D5EE, the
+  board's 0165C6; the bytes are swapped later, at 8C02636A, while neither character reads its controls); and where a
+  side starts with its second character (8C03AA0C, 8C03AB3C). Every other write of a +275 sets the four by place as a
+  match's records are made (8C0291FE, 8C029262, 8C0293E8), both selectors having gone back to 0 on the way from the
+  last match to the choosing (8C054692; a match is one round), or is Onslaught's (8C02CC6C, from his own code at
+  8C05FAA4: his second form coming in; and 8C02D3BA), whose fight Cross Fever, a versus mode, never has. So each stream
+  stays with its person through a match and into the next, as each record's person does here. The Duo Team Attack's
+  time is taken off on odd steps (8C02CF20). Every seventh step of a match the gauge routine (8C035DA2, the board's
+  01CD1E) is called with 1 for each side's first character (8C03606A): a count of its own (8C1E24A8) goes up each time
+  8C036052 runs (once a step of a match from its intro on, 8C0221E8's call: the board's 01CEAA from 00CEE2) and goes
+  back to 0 at seven, in Cross Fever only (it is never cleared otherwise, so the first add comes at once). The moves of
+  a character off point are passed by only for its side's held bit (8C03025C, the board's 018DB6), and the Dreamcast's
+  step (8C024106, the board's 00D1EA) has no clearing of its controls (the board's 00D4AC). The taunt tests the point
+  person's controller's Start as held (8C032674); in the Dreamcast's versus modes (8C4EBBAC set) the record's held word
+  must also be that player's taunt button alone (8C4EBF9A, light punch unless changed), as Start alone pauses the
+  Dreamcast's game, in Cross Fever as in the rest. The rest: the four players' choosing and menus, what comes after a
+  match, the controllers' rumble, a pause when a controller is pulled out, and places shared with the Dreamcast's other
+  modes (its versus and training): each of the tests that never ran in a fight there is one of these, read one by one.
 - **Characters**: the word +52, each number put in player 1's picks and seen in a fight with its name: 02 War Machine,
   04 Captain America, 06 Hulk, 08 Wolverine, 0A Gambit, 0C Venom, 0E Spider-Man, 10 Roll, 12 Ryu, 14 Captain Commando,
   16 Chun-Li, 18 Jin, 1A Zangief, 1C Strider Hiryu, 1E Morrigan, 20 Mega Man, 24 Red Venom, 26 Orange Hulk, 28 Gold War
@@ -260,6 +266,25 @@ Cross Fever and four players online (2026-11-08, on Linux, in a tree after `make
   with three machines joining (the match from the board's reset; after it the host's own game, still hosted).
 - The ladder at 606 and 638 frames a second against 585 and 610 without these sources, the two run in turn.
 
+Four machines, longer and on a worse connection (2026-11-09; each joining machine started once the host had the one
+before, as `check-online` now does: started half a second and 0.7 apart, a host slow to start put them out of order):
+
+- Made-up play at each of the four over 15,000 frames, with 2 vs 2, Cross Fever and the rest that changes play on
+  (packets 50 ms late, give or take 25, one in twenty lost): two matches and the choosing between them, 80 changes of
+  who is on point; the four hash logs the same over 14,989 frames and the host's record of the four replayed the same.
+  On the replay's trace, while a fight is on, every record's held word, whenever it changed, was its own person's
+  (45,872 frames of the four records; in 140 of them with the stick taken off, as the board does to any character
+  stopped at the screen's edge: 013CE2, from 013B4C).
+- Packets 140 ms late, give or take 80, and 15 in 100 lost (a ping of 300 to 400 ms: the game slows, waiting, rather
+  than run more than 8 frames on guesses): made-up play over 6,000 frames, the four the same over 5,987 (1,710
+  rollbacks at the host) and the record replayed the same, with the held words as above (62 changes of who is on
+  point); and the Cross Fever movie split by player (with the build above that lets `--movie` be each machine's
+  controllers), the same over 5,689 frames, both teams' Duo Team Attacks (455 and 794 frames) with every record's held
+  word its own person's and the time taken off on odd steps only.
+- That movie with player 1 holding the three punches as the choosing ends: side 0 starts with player 3's character, at
+  all four machines the same over 5,688 frames, each record moved by the person who chose its character (player 3's on
+  point first); player 1's Duo Team Attack command, from the partner now, does nothing, and side 1's goes as before.
+
 ## Not checked by a person
 
 Nobody has played it in a window, used a gamepad with it, or listened to it: every check above is headless. The
@@ -271,7 +296,4 @@ between the fights too: this game's show mixes them more than the earlier games'
 
 - Online play is the toolkit's; this game has not been tried over a network (four players at up to four machines
   neither: localhost only, and the introduction service's change run in Node, not on Cloudflare).
-- Cross Fever: the Dreamcast's four-player choosing and menus (here the board's choosing, a person a pick). Not
-  copied: after a round the Dreamcast sets both selectors back to 0 (8C054692, on to the next round) while a side's
-  swapped picks stay, so there the people would play each other's characters from the next round on; here each keeps
-  their own for the match.
+- Cross Fever: the Dreamcast's four-player choosing and menus (here the board's choosing, a person a pick).
