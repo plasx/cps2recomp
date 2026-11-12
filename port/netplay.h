@@ -193,8 +193,8 @@ public:
     // (... because the other side left, or went silent: a window waits for them again. A joining machine told by the
     // host that another machine went is `lost` too: it goes to the host again, which waits for everyone again)
     bool left = false, lost = false;
-    // The match is over on this machine: the others are told
-    void Leave();
+    // The match is over on this machine: the others are told. A reopening host asks them to reconnect instead.
+    void Leave(bool reopening = false);
     // A line on how it is going (ping, rollbacks), every few seconds, to stderr
     void Report(bool last = false);
     // The players' names (--net-name; the others' from the hello, or as the match begins), as the screen shows them:
@@ -210,6 +210,7 @@ public:
     std::vector<std::pair<int, std::string>> TakeHeard();
 
 private:
+    friend struct NetplayTest; // ROM-free protocol regressions exercise the production transitions
     Settings settings;
     UdpSocket socket;
     // (the handshake: the hello or the welcome, sent again until answered)
@@ -260,6 +261,7 @@ private:
     static constexpr uint64_t kCame = UINT64_MAX - 1, kWent = UINT64_MAX;
     std::map<uint32_t, uint64_t> tickets;
     std::vector<uint32_t> gone;
+    std::vector<uint32_t> polledGone; // departures in the outstanding poll; retained in gone until acknowledged
     int toldPlayers = 0, toldHere = 0; // (hosting: the match's players and the host's, as the service was told them)
     uint64_t punchedAt = 0;
     bool Introduce(uint64_t now, std::string &error);

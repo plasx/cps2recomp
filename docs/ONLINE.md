@@ -38,7 +38,8 @@ regions of the same game (`mvscj` against `mvsc`, say): the match is played as t
 effort: if the game reads a part of its program where the two sets still differ, the match stops as a desync does
 (the same set is surest).
 
-Each game's own page has the same under Play, in its **Online** card. Nothing needs setting up on either router. The
+Each game's own page has the same under Play, in its **Online** card. Codes try a direct connection without router
+setup; networks that block it need one of the alternatives below. The
 host is player 1. The game's window says it is waiting until the other player comes, or how many more a match of four
 waits for (Esc gives up). From a terminal:
 
@@ -59,7 +60,7 @@ cps2recomp-launcher --play mvsc -- --join CODE --net-people 2    # ... two of th
 - **Joining by address** works too, without the service: on a home network, the host's own address (the Online card
   lists it); over the internet, the host's public address with UDP port 7845 forwarded to it on the router (`--host
   7900` and `--join ADDRESS:7900` for another port); or a VPN such as [Tailscale](https://tailscale.com). That is
-  also the way for the rare two networks a code can't connect (some mobile networks). In a match of four, each
+  also the way for networks a code can't connect (including some mobile networks). In a match of four, each
   joining machine goes to the host's address the same way.
 
 ## In a match
@@ -117,3 +118,22 @@ cps2recomp-launcher --play mvsc -- --join CODE --net-people 2    # ... two of th
   Confirm leaves, Back stays.
 - **Off during a match**: the cheats (on both sides, for a fair match), the in-game menu, save states, pause, the speed, run-ahead, the training mode and the
   other modes (endless battle, the viewers). A match ends when any player closes their game.
+
+## Checking connections and reconnects
+
+When reporting a failed join, include the build/version on every machine, how many people play at each, the order
+they joined, whether the host used the launcher or the in-game menu, and the last `online:` message on each machine.
+Do not post the match's secret, full service request URLs or public IP addresses. The last message helps separate:
+
+- **No code / couldn't reach the service**: admission failed before the games tried each other. Check internet
+  access and that the service is available.
+- **Match full**: the service has reserved all places. A person who joined but never reached the host holds a place
+  for the host's 30-second wait; the host then retries releasing it until the service acknowledges the release.
+- **Trying the host's addresses / waiting for players**: admission succeeded, but the direct UDP connection is
+  incomplete. Try the host's LAN address on one network; on separate networks, test a forwarded port or VPN.
+- **Game transfer or desync**: the machines reached one another. Keep the error and version details; changing
+  controller mappings will not repair mismatched simulation state.
+
+The introduction service is not a gameplay relay. A successful test between copies on one computer establishes
+local protocol behavior, not that four different internet connections can reach each other. The repeatable local
+checks and the separate internet test matrix are in [ONLINE_TESTING.md](ONLINE_TESTING.md).

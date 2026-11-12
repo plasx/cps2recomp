@@ -24,8 +24,9 @@
 # 4 the other's). MACHINES=4: four machines, one at each (players 1 to 4 in the order they came, each joining machine
 # started once the host has the one before; their lines of the chat go through the host). MACHINES=3: three, the host's
 # two (players 1 and 3) and one at each of the others (2, then 4).
+# PEOPLE lists the people at each machine in arrival order, host first (1,2,1 or 1,1,2 also test a joining pair).
 #
-#   [ARCADE=1] [FOUR=1 | MACHINES=3|4] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]   (make GAME=<id> check-online: from the repository's top, after `make`; ROM=your set)
+#   [ARCADE=1] [FOUR=1 | MACHINES=3|4 | PEOPLE=1,2,1] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]
 set -eu
 GAME=${GAME:?which game: GAME=<id>}
 ROM=${ROM:-rom/$GAME}
@@ -37,6 +38,28 @@ machines=${MACHINES:-2}
 [ -n "$four" ] && machines=2
 case "$machines" in 2|3|4) ;; *) echo "MACHINES: 2, 3 or 4"; exit 1 ;; esac
 [ "$machines" -gt 2 ] && four=1
+layout=${PEOPLE:-}
+if [ -z "$layout" ]; then
+    case "$machines${four:+f}" in
+        2) layout=1,1 ;; 2f) layout=2,2 ;; 3f) layout=2,1,1 ;; 4f) layout=1,1,1,1 ;;
+    esac
+fi
+case "$layout" in
+    1,1) four= ;;
+    2,2|2,1,1|1,2,1|1,1,2|1,1,1,1) four=1 ;;
+    *) echo "PEOPLE: 1,1; 2,2; 2,1,1; 1,2,1; 1,1,2; or 1,1,1,1"; exit 1 ;;
+esac
+IFS=, read -ra counts <<< "$layout"
+machines=${#counts[@]}
+hostPeople=${counts[0]}
+pids=
+cleanup() {
+    for pid in $pids; do kill "$pid" 2>/dev/null || true; done
+    for pid in $pids; do wait "$pid" 2>/dev/null || true; done
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 work=work/$GAME/check
 mkdir -p "$work"
 # (the joining machines: join, or join1 to join3)
@@ -51,13 +74,10 @@ play=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '($2=="Game"||$2=="
     $1 !~ /^(display_|window_size|run_ahead|custom_soundtrack|widescreen_walls|custom_colours)/ {print $1}' | paste -sd, -)
 play="${play:+$play,}widescreen"
 # (the people at each machine, and the made-up play's players)
-hostPeople=1 joinPeople=1
 if [ -n "$four" ]; then
     # (the on-or-off features marked for matches: kFeatureMatch, 512 in --list-features's flags)
     modes=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' 'NF==5 && int($3 / 512) % 2 == 1 {print $1}' | paste -sd, -)
     play="$play,tag_team=2${modes:+,$modes}"
-    [ "$machines" -le 3 ] && hostPeople=2
-    [ "$machines" = 2 ] && joinPeople=2
 fi
 # (the match has them but for the cheats, which are off on all sides: the replay is given the same)
 cheats=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$2=="Cheats" {print $1}')
@@ -66,8 +86,9 @@ port=$((7900 + RANDOM % 1000))
 side() { # host | join..., then the program's arguments
     name=$1; shift
     rom=$ROM; [ "$name" != host ] && rom=$JOIN_ROM
-    "build/$GAME/$GAME" --rom "$rom" --headless --frames "$frames" --settings "$work/online-$name.ini" \
-        --eeprom "$work/online-$name.eeprom" --hash-log "$work/online-$name.txt" --net-fake 50:25:5 "$@" 2> "$work/online-$name.err"
+    exec "build/$GAME/$GAME" --rom "$rom" --headless --frames "$frames" --settings "$work/online-$name.ini" \
+        --eeprom "$work/online-$name.eeprom" --hash-log "$work/online-$name.txt" --net-service off \
+        --net-fake 50:25:5 "$@" 2> "$work/online-$name.err"
 }
 named() { # host | join... -> its name
     case "$1" in host) echo "Host P1" ;; join) echo "Joiner" ;; *) echo "Joiner ${1#join}" ;; esac
@@ -83,23 +104,29 @@ side host --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "
     --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" &
 pids=$!
 # (the joining side once the host waits: its socket is open by then, however long the game took to start)
-said "$work/online-host.err" '^online: Waiting for' || echo "(the host not waiting after 10 seconds)"
+said "$work/online-host.err" '^online: Waiting for' || { echo "FAILED: host not waiting after 10 seconds"; exit 1; }
 [ -n "$arcade" ] && sleep 4
 status=0
 n=0
 for name in $joiners; do
     n=$((n + 1))
+    joinPeople=${counts[$n]}
     side "$name" --auto "$((11 + n)):0:$joinPeople" --join "127.0.0.1:$port" --net-people "$joinPeople" --net-name "$(named "$name")" \
         --net-say "$((90 + 30 * n)):good luck from $(named "$name")!" &
     pids="$pids $!"
     # (each once the one before has come, their players going by it)
-    [ "$machines" -gt 2 ] && { said "$work/online-host.err" "^online: $(named "$name") is here" || echo "(the $name not come after 10 seconds)"; }
+    if [ "$machines" -gt 2 ]; then
+        said "$work/online-host.err" "^online: $(named "$name") is here" || {
+            echo "FAILED: $name not here after 10 seconds"; exit 1;
+        }
+    fi
 done
 set -- host $joiners
 for pid in $pids; do
     wait "$pid" || { echo "FAILED: the $1 stopped"; tail -3 "$work/online-$1.err"; status=1; }
     shift
 done
+pids=
 # (each machine's log ends where it last had every other's controls: the shortest is what all have)
 lines=$frames
 for name in host $joiners; do
@@ -122,11 +149,13 @@ else
 fi
 # (every machine knows every player's name, and has every other machine's line of the chat: sent straight to it, or
 # through the host, through the lost packets)
-case "$machines$four" in
-    2) players="player 1 Host P1, player 2 Joiner" ;;
-    21) players="player 1 Host P1, player 2 Joiner, player 3 Host P1, player 4 Joiner" ;;
-    31) players="player 1 Host P1, player 2 Joiner 1, player 3 Host P1, player 4 Joiner 2" ;;
-    41) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 3" ;;
+case "$layout" in
+    1,1) players="player 1 Host P1, player 2 Joiner" ;;
+    2,2) players="player 1 Host P1, player 2 Joiner, player 3 Host P1, player 4 Joiner" ;;
+    2,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Host P1, player 4 Joiner 2" ;;
+    1,2,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 1" ;;
+    1,1,2) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 2" ;;
+    1,1,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 3" ;;
 esac
 for name in host $joiners; do
     if ! grep -qxF "online: $players" "$work/online-$name.err"; then
@@ -136,10 +165,12 @@ for name in host $joiners; do
 done
 if [ -n "$four" ]; then
     # (the four at their machines: each machine's players as said)
-    case "$machines" in
-        2) where="host=players 1 and 3,join=players 2 and 4" ;;
-        3) where="host=players 1 and 3,join1=player 2,join2=player 4" ;;
-        4) where="host=player 1,join1=player 2,join2=player 3,join3=player 4" ;;
+    case "$layout" in
+        2,2) where="host=players 1 and 3,join=players 2 and 4" ;;
+        2,1,1) where="host=players 1 and 3,join1=player 2,join2=player 4" ;;
+        1,2,1) where="host=player 1,join1=players 2 and 4,join2=player 3" ;;
+        1,1,2) where="host=player 1,join1=player 2,join2=players 3 and 4" ;;
+        1,1,1,1) where="host=player 1,join1=player 2,join2=player 3,join3=player 4" ;;
     esac
     placed=1
     IFS=, read -ra items <<< "$where"

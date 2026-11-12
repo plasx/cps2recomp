@@ -107,8 +107,16 @@ namespace {
     // The steps counted for the gauge, as the Dreamcast counts them (8C1E24A8): one more each time its 8C036052 runs
     // (once a step of a match, from the intro on: 8C0221E8, the board's 00CEE2), and in Cross Fever back to 0 at seven,
     // when both sides get their 1. (The Dreamcast's goes on counting outside Cross Fever; here it stops at seven, which
-    // comes to the same.) Kept with save states.
+    // comes to the same.) Kept with save states and across matches, but cleared when the board boots.
     uint8_t g_gaugeSteps;
+
+    // 000FAC: the board's boot calls its settings reader (007E7A; board.cpp hooks its return at 000FB2).
+    // Machine::Reset clears the board's RAM, not this host-side count. Reset it here even if Cross Fever is off,
+    // so a reset/rehost starts with the same gauge phase as a fresh process. Ordinary match transitions keep it.
+    bool GaugeBoot(M68K &) {
+        g_gaugeSteps = 0;
+        return false;
+    }
 
     // 01CEAA, once a step of a match (00CEE2's jsr is the only way in: 00CEE8 is on the stack), before the health a
     // resting character gets back. In Cross Fever, at every seventh step (g_gaugeSteps), the gauge routine (01CD1E: D0
@@ -223,6 +231,7 @@ void CrossFeverState(Archive &ar) {
 }
 
 void RegisterCrossFever() {
+    AddHook(HookAt(0x000FAC), "CrossFeverGaugeBoot", GaugeBoot);
     AddHook(HookAt(0x01368E), "CrossFeverPanel", ReadPanel);
     AddHook(HookAt(0x015F68), "CrossFeverDuoTime", DuoTime);
     AddHook(HookAt(0x01CEAA), "CrossFeverGauge", GaugeStep);

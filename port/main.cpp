@@ -2339,7 +2339,7 @@ void Port::BackToSolo(bool stillHosting) {
             settings.renewSecret = net->Secret();
         }
         if (!connecting) {
-            net->Leave();
+            net->Leave(stillHosting);
             net->Report(true);
         }
     }

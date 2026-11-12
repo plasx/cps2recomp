@@ -64,3 +64,20 @@ npx wrangler dev       # or on this machine, at http://localhost:8787, for tests
 
 The games ask `Netplay::kService` (`port/netplay.h`) unless started with `--net-service URL` (or `off`: no codes,
 addresses only).
+
+## Checking it
+
+With Node.js 22 or later, from the repository's root:
+
+```sh
+node --test online/test/*.test.js
+```
+
+Or run `npm test` from `online`. No dependencies, game files, account or network are needed. The tests import the
+actual Worker and Durable Object handlers, using in-memory storage and bindings. They cover two-player compatibility,
+every ordered one-/two-person placement in a match of four, capacity errors, ticket removal and retries after a lost
+request or answer, wrong credentials/build/game, lobby visibility, rehosting and expiry. Retrying a removal must not
+evict a replacement that received a newer ticket.
+
+These are serial service tests. They do not establish Cloudflare scheduling/storage behavior, UDP hole punching,
+or a match between separate networks. The game's retry queue and online rollback need their own checks too.

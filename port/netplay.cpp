@@ -953,6 +953,11 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
             }
             const HttpAnswer answer = asking.get();
             if (answer.status == 200) {
+                // A failed request (or a lost answer) must not strand a reservation at the service. Retire only
+                // the departures in this poll: others may have arrived while it was in flight. Repeating them is safe.
+                std::erase_if(gone, [&](uint32_t number) {
+                    return std::find(polledGone.begin(), polledGone.end(), number) != polledGone.end();
+                });
                 // (each who joined: "TICKET ADDRESS ADDRESS..."; or, from a service before these, the one who joined)
                 std::vector<std::string> joined = JsonList(answer.body, "joiners");
                 if (joined.empty() && JsonTrue(answer.body, "joined")) {
@@ -983,9 +988,16 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
                     invitation = JsonText(answer.body, "invite");
                 }
             }
+            polledGone.clear();
             if (answer.status == 404) {
                 // (the code has run out (30 minutes): the same one had again, for whoever was given it, and asked on)
                 fprintf(stderr, "online: the code ran out: asking for it again\n");
+                // The renewed match allocates tickets anew; old removals must not remove its new arrivals.
+                gone.clear();
+                tickets.clear();
+                for (Link &link : links) {
+                    link.ticket = 0;
+                }
                 settings.renewCode = code.substr(0, 3) + code.substr(4);
                 settings.renewSecret = secret;
                 intro = Intro::Stun;
@@ -999,16 +1011,17 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
             settings.renewSecret = secret;
             tickets.clear();
             gone.clear();
+            polledGone.clear();
             intro = Intro::Stun;
             return true;
         }
         const uint64_t waited = now - codeAt;
         if (now - askedAt > (waited < 120000 ? 2000u : waited < 600000 ? 5000u : 10000u)) {
             std::string left;
-            for (const uint32_t number : gone) {
+            polledGone = gone;
+            for (const uint32_t number : polledGone) {
                 left += (left.empty() ? "&gone=" : ",") + std::to_string(number);
             }
-            gone.clear();
             ask("GET", "/v1/host/" + code.substr(0, 3) + code.substr(4) + "?secret=" + secret + left, "");
         }
         return true;
@@ -1917,12 +1930,18 @@ Netplay::~Netplay() {
     }
 }
 
-void Netplay::Leave() {
+void Netplay::Leave(bool reopening) {
     while (!late.empty()) { // (... and before the goodbye)
         socket.Send(late.front().to, late.front().data.data(), late.front().data.size());
         late.pop_front();
     }
-    Writer bye(kBye);
+    // A host reopening the match must repeat End's reconnect message, not contradict it with a terminal goodbye.
+    // UDP may deliver this before End's packets, or lose those packets altogether.
+    const bool again = settings.hosting && reopening;
+    Writer bye(again ? kOver : kBye);
+    if (again) {
+        bye.Text(ended.empty() ? "The match is restarting." : ended);
+    }
     for (const Link &link : links) {
         for (int n = 0; n < 3; n++) {
             socket.Send(link.address, bye.out.data(), bye.out.size());

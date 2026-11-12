@@ -1,0 +1,294 @@
+// SPDX-License-Identifier: GPL-3.0-only
+// Copyright (C) 2026 Morphus56K and contributors. Part of cps2recomp.
+// The actual Worker and Durable Object handlers, with storage and delivery stood in for in memory.
+// Requests are serial here: this does not test Cloudflare's event scheduling or the game's UDP transport.
+
+import assert from "node:assert/strict";
+import test from "node:test";
+import worker, { Lobby, Match, Room, Stats } from "../src/index.js";
+
+class Storage {
+  values = new Map();
+  alarm = null;
+  async get(key) { return structuredClone(this.values.get(key)); }
+  async put(key, value) { this.values.set(key, structuredClone(value)); }
+  async deleteAll() { this.values.clear(); }
+  async setAlarm(when) { this.alarm = when; }
+}
+
+class Namespace {
+  objects = new Map();
+  constructor(make) { this.make = make; }
+  idFromName(name) { return name; }
+  get(id) {
+    if (!this.objects.has(id)) {
+      const state = { storage: new Storage() };
+      const handler = this.make(state);
+      this.objects.set(id, { state, handler, fetch: (url, init) => handler.fetch(new Request(url, init)) });
+    }
+    return this.objects.get(id);
+  }
+}
+
+function fixture(t) {
+  let now = Date.UTC(2026, 0, 1);
+  t.mock.method(Date, "now", () => now);
+  const env = {};
+  env.MATCHES = new Namespace((state) => new Match(state, env));
+  env.LOBBIES = new Namespace((state) => new Lobby(state));
+  env.ROOMS = new Namespace((state) => new Room(state, env));
+  env.STATS = new Namespace((state) => new Stats(state));
+  const about = { game: "mvsc", title: "Marvel vs. Capcom", build: "test-build", version: "test-version", protocol: 8 };
+  async function request(path, body) {
+    const pending = [];
+    const response = await worker.fetch(new Request("https://online.test" + path,
+      body === undefined ? {} : { method: "POST", body: JSON.stringify(body) }), env,
+      { waitUntil: (promise) => pending.push(promise) });
+    await Promise.all(pending);
+    return { status: response.status, body: await response.json() };
+  }
+  const host = (overrides = {}) => request("/v1/host", {
+    ...about, addresses: ["127.0.0.1:7000"], listed: true, name: "Host", ...overrides,
+  });
+  const join = (code, port, overrides = {}) => request("/v1/join/" + code, {
+    ...about, addresses: ["127.0.0.1:" + port], people: 1, ...overrides,
+  });
+  const poll = (host, gone = "") => request("/v1/host/" + host.code + "?secret=" +
+    encodeURIComponent(host.secret) + (gone ? "&gone=" + encodeURIComponent(gone) : ""));
+  return { env, about, request, host, join, poll, advance: (ms) => { now += ms; } };
+}
+
+async function start(f, overrides = {}) {
+  const answer = await f.host(overrides);
+  assert.equal(answer.status, 200);
+  assert.match(answer.body.code, /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
+  assert.equal(typeof answer.body.secret, "string");
+  return answer.body;
+}
+
+async function four(f) {
+  const host = await start(f, { players: 4, here: 1 });
+  for (let i = 1; i <= 3; ++i) {
+    const joined = await f.join(host.code, 7000 + i);
+    assert.equal(joined.status, 200);
+    assert.equal(joined.body.ticket, i);
+  }
+  return host;
+}
+
+test("a legacy host is two players, ignoring each machine's larger people setting", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { protocol: 7, here: 2 });
+  const info = await f.request("/v1/code/" + host.code);
+  assert.equal(info.body.players, 2);
+  assert.equal(info.body.room, 1);
+  assert.equal((await f.join(host.code, 7001, { people: 2 })).status, 200);
+  const poll = await f.poll(host);
+  assert.equal(poll.body.joined, true);
+  assert.deepEqual(poll.body.addresses, ["127.0.0.1:7001"]);
+  const extra = await f.join(host.code, 7002);
+  assert.equal(extra.status, 409);
+  assert.equal(extra.body.error, "Someone has joined that match already.");
+});
+
+// Every ordered partition of four people with one or two at the host and one or two at each joiner.
+for (const [here, joiners] of [[1, [1, 1, 1]], [1, [1, 2]], [1, [2, 1]], [2, [1, 1]], [2, [2]]]) {
+  test("four people admitted in arrival order: " + [here, ...joiners].join(" + "), async (t) => {
+    const f = fixture(t);
+    const host = await start(f, { players: 4, here });
+    let left = 4 - here;
+    const expected = [];
+    for (let i = 0; i < joiners.length; ++i) {
+      const info = await f.request("/v1/code/" + host.code);
+      assert.equal(info.status, 200);
+      assert.equal(info.body.players, 4);
+      assert.equal(info.body.room, left);
+      const joined = await f.join(host.code, 7001 + i, { people: joiners[i] });
+      assert.equal(joined.status, 200);
+      assert.equal(joined.body.ticket, i + 1);
+      assert.deepEqual(joined.body.addresses, ["127.0.0.1:7000"]);
+      expected.push(`${i + 1} 127.0.0.1:${7001 + i}`);
+      assert.deepEqual((await f.poll(host)).body.joiners, expected);
+      left -= joiners[i];
+    }
+    assert.equal(left, 0);
+    assert.equal((await f.request("/v1/code/" + host.code)).status, 409);
+    const extra = await f.join(host.code, 7010);
+    assert.equal(extra.status, 409);
+    assert.equal(extra.body.error, "That match is full.");
+    assert.deepEqual((await f.poll(host)).body.joiners, expected);
+  });
+}
+
+test("a two-person joiner cannot consume the last single seat or a ticket", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  assert.equal((await f.join(host.code, 7001, { people: 2 })).body.ticket, 1);
+  const refused = await f.join(host.code, 7002, { people: 2 });
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /room for one more player/);
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 1);
+  assert.equal((await f.join(host.code, 7003)).body.ticket, 2);
+});
+
+for (const [field, value, message] of [["game", "another-game", /another game/],
+                                     ["build", "another-build", /different builds/],
+                                     ["version", "another-version", /same version/]]) {
+  test("wrong " + field + " does not reserve a place", async (t) => {
+    const f = fixture(t);
+    const host = await start(f, { players: 4, here: 1 });
+    const refused = await f.join(host.code, 7001, { [field]: value });
+    assert.equal(refused.status, 409);
+    assert.match(refused.body.error, message);
+    assert.equal((await f.request("/v1/code/" + host.code)).body.room, 3);
+    assert.equal((await f.join(host.code, 7002)).body.ticket, 1);
+  });
+}
+
+test("wrong host secret cannot release someone else's reservation", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  const refused = await f.request("/v1/host/" + host.code + "?secret=wrong&gone=2");
+  assert.equal(refused.status, 404);
+  assert.equal((await f.poll(host)).body.joiners.length, 3);
+  assert.equal((await f.join(host.code, 7010)).status, 409);
+});
+
+test("gone before delivery: retrying the removal opens the blocked seat", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  // The first HTTP request never reaches the Worker. Ordinary polls must not silently evict someone.
+  for (let i = 0; i < 3; ++i) {
+    assert.equal((await f.poll(host)).body.joiners.length, 3);
+  }
+  assert.equal((await f.join(host.code, 7010)).status, 409);
+  const acknowledged = await f.poll(host, "2");
+  assert.equal(acknowledged.status, 200);
+  assert.deepEqual(acknowledged.body.joiners, ["1 127.0.0.1:7001", "3 127.0.0.1:7003"]);
+  assert.equal((await f.join(host.code, 7010)).body.ticket, 4);
+});
+
+test("gone response lost: retry is idempotent and cannot evict the replacement", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  // The Worker commits the removal, but its answer is lost before the host receives it.
+  await f.poll(host, "2");
+  assert.equal((await f.join(host.code, 7010)).body.ticket, 4);
+  const retried = await f.poll(host, "2,2");
+  assert.equal(retried.status, 200);
+  assert.deepEqual(retried.body.joiners, ["1 127.0.0.1:7001", "3 127.0.0.1:7003", "4 127.0.0.1:7010"]);
+  assert.equal((await f.join(host.code, 7011)).status, 409);
+});
+
+test("gone can release two people without removing other joiners", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  await f.join(host.code, 7001, { people: 2 });
+  await f.join(host.code, 7002);
+  await f.poll(host, "1");
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 2);
+  const replacement = await f.join(host.code, 7003, { people: 2 });
+  assert.equal(replacement.status, 200);
+  assert.equal(replacement.body.ticket, 3);
+  assert.deepEqual((await f.poll(host)).body.joiners, ["2 127.0.0.1:7002", "3 127.0.0.1:7003"]);
+});
+
+test("unknown and invalid gone tickets do not change the roster", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  const before = (await f.poll(host)).body.joiners;
+  const after = await f.poll(host, "0,-1,1.5,not-a-ticket,999");
+  assert.equal(after.status, 200);
+  assert.deepEqual(after.body.joiners, before);
+  assert.equal((await f.join(host.code, 7010)).status, 409);
+});
+
+test("a partial match remains listed, a full one leaves, and gone allows relisting", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  const listed = async () => (await f.request("/v1/lobby/mvsc?protocol=8")).body.matches.map((m) => m.code);
+  assert.deepEqual(await listed(), [host.code]);
+  assert.deepEqual((await f.request("/v1/lobby/mvsc?protocol=7")).body.matches, []);
+  await f.join(host.code, 7001);
+  await f.join(host.code, 7002);
+  assert.deepEqual(await listed(), [host.code]);
+  await f.join(host.code, 7003);
+  assert.deepEqual(await listed(), []);
+  f.advance(10001);
+  await f.poll(host, "2");
+  assert.deepEqual(await listed(), [host.code]);
+});
+
+test("the same host can reopen its full code and start a new admission roster", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  const again = await f.host({ ...host, players: 4, here: 2 });
+  assert.equal(again.status, 200);
+  assert.deepEqual(again.body, host);
+  assert.deepEqual((await f.poll(host)).body, { joined: false });
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 2);
+  assert.equal((await f.join(host.code, 7010, { people: 2 })).status, 200);
+});
+
+test("a different host cannot replace the existing code's roster", async (t) => {
+  const f = fixture(t);
+  const host = await four(f);
+  const other = await f.host({ code: host.code, secret: "wrong", players: 4, here: 2 });
+  assert.equal(other.status, 200);
+  assert.notEqual(other.body.code, host.code);
+  assert.equal((await f.poll(host)).body.joiners.length, 3);
+  assert.equal((await f.join(host.code, 7010)).status, 409);
+});
+
+test("a 30-minute code expires and its host can renew it with the same secret", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  f.advance(30 * 60 * 1000 + 1);
+  assert.equal((await f.request("/v1/code/" + host.code)).status, 404);
+  assert.equal((await f.poll(host)).status, 404);
+  const renewed = await f.host({ ...host, players: 4, here: 1 });
+  assert.equal(renewed.status, 200);
+  assert.deepEqual(renewed.body, host);
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 3);
+  assert.equal((await f.join(host.code, 7001)).status, 200);
+});
+
+test("the expiry alarm removes both the saved match and its lobby entry", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  const object = f.env.MATCHES.get(host.code);
+  assert.equal(object.state.storage.alarm, Date.now() + 30 * 60 * 1000);
+  await object.handler.alarm();
+  assert.equal((await f.request("/v1/code/" + host.code)).status, 404);
+  assert.deepEqual((await f.request("/v1/lobby?protocol=8")).body.matches, []);
+});
+
+test("a stored pre-upgrade match still exposes the one joiner's old addresses field", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { protocol: 7 });
+  const storage = f.env.MATCHES.get(host.code).state.storage;
+  const legacy = await storage.get("match");
+  for (const key of ["players", "here", "joiners", "tickets"]) delete legacy[key];
+  legacy.joiner = ["127.0.0.1:7001"];
+  await storage.put("match", legacy);
+  const poll = await f.poll(host);
+  assert.equal(poll.status, 200);
+  assert.equal(poll.body.joined, true);
+  assert.deepEqual(poll.body.addresses, legacy.joiner);
+  assert.equal((await f.request("/v1/code/" + host.code)).status, 409);
+  assert.equal((await f.join(host.code, 7002)).status, 409);
+});
+
+test("an empty stored pre-upgrade match accepts one new joiner", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { protocol: 7 });
+  const storage = f.env.MATCHES.get(host.code).state.storage;
+  const legacy = await storage.get("match");
+  for (const key of ["players", "here", "joiners", "tickets"]) delete legacy[key];
+  legacy.joiner = null;
+  await storage.put("match", legacy);
+  const joined = await f.join(host.code, 7001, { people: 2 });
+  assert.equal(joined.status, 200);
+  assert.equal(joined.body.ticket, 1);
+  assert.equal((await f.join(host.code, 7002)).status, 409);
+});
