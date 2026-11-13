@@ -9,14 +9,15 @@
 #include "../recomp-common/text.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace port {
 
 std::vector<HudPanel> HudPanels(int width, int height) {
     using namespace recomp::text;
     std::vector<HudPanel> panels;
-    // A font dot is a pixel of a 224-line picture
-    const float d = static_cast<float>(std::max((height + 112) / 224, 1));
+    // A font dot is a pixel of a 224-line picture (its shorter side: a picture turned upright is 224 across)
+    const float d = static_cast<float>(std::max((std::min(width, height) + 112) / 224, 1));
     const int pad = static_cast<int>(3 * d);
     for (const cps2recomp::HudLine &line : cps2recomp::Hud()) {
         if (line.text.empty()) {
@@ -43,13 +44,29 @@ std::vector<HudPanel> HudPanels(int width, int height) {
     return panels;
 }
 
-void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *panels) {
+void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *panels, unsigned parts) {
     // The boxes first, so that the text is over them
     const recomp::text::Canvas canvas{pixels, width, height};
-    for (const cps2recomp::HudBox &box : cps2recomp::Boxes()) {
+    for (const cps2recomp::HudBox &box : parts & kHudBoxes ? cps2recomp::Boxes() : std::vector<cps2recomp::HudBox>{}) {
         const float x = static_cast<float>(box.x), y = static_cast<float>(box.y);
         const float w = static_cast<float>(box.width), h = static_cast<float>(box.height);
         if (box.x >= width || box.y >= height || box.x + box.width <= 0 || box.y + box.height <= 0) {
+            continue;
+        }
+        if (box.round) {
+            // (row by row, the ellipse's span on each)
+            const float rx = w / 2, ry = h / 2, cx = x + rx;
+            for (int row = 0; row < box.height; row++) {
+                const float dy = (static_cast<float>(row) + 0.5f - ry) / ry;
+                if (dy * dy >= 1.0f) {
+                    continue;
+                }
+                const float half = rx * std::sqrt(1.0f - dy * dy);
+                const float from = std::round(cx - half), to = std::round(cx + half);
+                if (to > from) {
+                    canvas.Fill(from, y + static_cast<float>(row), to - from, 1, {box.r, box.g, box.b, box.fill});
+                }
+            }
             continue;
         }
         canvas.Fill(x, y, w, h, {box.r, box.g, box.b, box.fill});
@@ -62,7 +79,7 @@ void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *pan
         canvas.Fill(x, y, 1, h, line);
         canvas.Fill(x + w - 1, y, 1, h, line);
     }
-    for (const HudPanel &panel : HudPanels(width, height)) {
+    for (const HudPanel &panel : parts & kHudText ? HudPanels(width, height) : std::vector<HudPanel>{}) {
         if (panels) {
             panels->push_back({panel.x, panel.y, panel.width, panel.height});
         }

@@ -4,8 +4,8 @@
 // The introduction service for online play (port/netplay.h, online/README.md). It only introduces: a host asks for a
 // code and says where it can be reached (its addresses as the internet and its own network see them); another player
 // gives the code and where they can be reached, and is told the host's; the host, asking again, is told theirs. They
-// then reach each other directly; nothing of the match goes through here. A code lasts 30 minutes, or until its match
-// is full. Every match is a Durable Object of its own, named by its code.
+// then reach each other directly; nothing of the match goes through here. A waiting code lasts 30 minutes. An active,
+// spectator-enabled match renews its lifetime on host heartbeats. Every match is a Durable Object named by its code.
 //
 // A match is for two players, or four if its host says so (`players`: tag team's 2 vs 2), `here` of them at the
 // host's machine (1 unless said). Each who joins says how many play at theirs (`people`: 1 or 2; one in a match of
@@ -18,9 +18,10 @@
 //   POST /v1/host                {code, secret, game, build, addresses, players, here} -> {code, secret}   (the same code
 //                                                                  again, for the players who left to come back to: Netplay's
 //                                                                  reconnect; those who had joined it are forgotten)
-//   GET  /v1/host/CODE?secret=S[&gone=T,T]                         -> {joined: false} | {joined: true, addresses,
-//                                                                     joiners: ["T ADDRESS ADDRESS", ...]}
+//   GET  /v1/host/CODE?secret=S[&gone=T,T][&active=1]              -> {joined: false} | {joined: true, addresses,
+//                                                                     joiners: ["T ADDRESS ADDRESS", ...], viewers, watchers}
 //   POST /v1/join/CODE           {game, build, addresses, people}  -> {addresses, ticket} | 404 | 409 {error}
+//   POST /v1/watch/CODE          {game, build, version, protocol, addresses, token?} -> {addresses, token}
 //   GET  /v1/lobby/GAME?protocol=N                                 -> {matches: [{code, name, waiting}]}
 //   GET  /v1/code/CODE                                             -> {game, title, version, protocol, players, room} | 404 (which
 //                                                                     game a code is for, while it has room: the launcher's Join)
@@ -35,8 +36,8 @@
 //   GET  /v1/stats?key=K                                           -> a page of numbers, for the service's keeper (STATS_KEY)
 //
 // A host that asks for it (`listed`, with a `name` and its `protocol`) is in the lobby, a Durable Object (Lobby) that
-// keeps every game's: there while it is asking whether someone has joined (seen in the last 25 seconds), and until
-// someone has. A match tells the lobby it is still there at most every 10 seconds, however often its host asks.
+// keeps every game's: there while it has room and the host is asking (seen in the last 25 seconds), or while the
+// host reports it active with spectators allowed. A match refreshes its listing at most every 10 seconds.
 //
 // The waiting room (Room, a Durable Object) is the players whose launcher has its Online page open, each checking in
 // every 10 to 20 seconds, and gone 30 seconds after the last. A player is shown to the others with a name, and while they
@@ -209,7 +210,11 @@ export default {
     }
     if (request.method === "GET" && parts[1] === "host") {
       return match.fetch(`https://match/poll?secret=${encodeURIComponent(url.searchParams.get("secret") || "")}` +
-                         `&gone=${encodeURIComponent(url.searchParams.get("gone") || "")}`);
+                         `&gone=${encodeURIComponent(url.searchParams.get("gone") || "")}` +
+                         `&active=${url.searchParams.get("active") === "1" ? "1" : "0"}`);
+    }
+    if (request.method === "POST" && parts[1] === "watch") {
+      return match.fetch("https://match/watch", { method: "POST", body: await request.text() });
     }
     if (request.method === "POST" && parts[1] === "join") {
       const text = await request.text();
@@ -242,7 +247,8 @@ export class Match {
     const lobby = this.env.LOBBIES.get(this.env.LOBBIES.idFromName("all"));
     await lobby.fetch(`https://lobby/${what}`, {
       method: "POST",
-      body: JSON.stringify({ code, game: match.game, title: match.title, version: match.version, name: match.name, protocol: match.protocol, made: match.made }),
+      body: JSON.stringify({ code, game: match.game, title: match.title, version: match.version, name: match.name, protocol: match.protocol,
+                             made: match.made, watching: !!(match.active && match.spectators) }),
     });
   }
 
@@ -264,7 +270,7 @@ export class Match {
     const url = new URL(request.url);
     const now = Date.now();
     let match = (await this.state.storage.get("match")) || null;
-    if (match && now - match.made > kLifetime) {
+    if (match && now > (match.expires || match.made + kLifetime)) {
       await this.state.storage.deleteAll();
       match = null;
     }
@@ -282,10 +288,13 @@ export class Match {
       const secret = typeof body.secret === "string" && /^[0-9a-f-]{36}$/.test(body.secret) ? body.secret : crypto.randomUUID();
       const players = Number(body.players) === 4 ? 4 : 2;
       const here = players === 4 && Number(body.here) === 2 ? 2 : 1;
+      // The same code and secret may be reopened while an old gone poll is still in flight. Never reuse its
+      // ticket numbers while this match record exists, or that delayed removal could evict a new arrival.
+      const tickets = match ? match.tickets || 0 : 0;
       match = { made: now, secret, game: cleanText(body.game), build: cleanText(body.build), host: cleanAddresses(body.addresses), joiners: [],
-                tickets: 0, players, here,
+                tickets, players, here,
                 listed: body.listed === true, name: cleanName(body.name), title: cleanText(body.title), version: cleanText(body.version),
-                protocol: Number(body.protocol) || 0,
+                protocol: Number(body.protocol) || 0, spectators: body.spectators === true, active: false, viewers: [],
                 code: url.searchParams.get("code") || "",
                 invite: cleanIds([body.invite])[0] || null, from: cleanIds([body.from])[0] || "", invited: "" };
       await this.invite(match);
@@ -299,7 +308,7 @@ export class Match {
       return json({ error: "no such code" }, 404);
     }
     if (url.pathname === "/info") {
-      if (room(match) <= 0) {
+      if (room(match) <= 0 || match.active) {
         return json({ error: fullSaid(match) }, 409);
       }
       return json({ game: match.game, title: match.title || match.game, version: match.version || "", protocol: match.protocol,
@@ -312,20 +321,28 @@ export class Match {
       // (those the host says went before the match began, or never came: forgotten, which makes room for others)
       const gone = (url.searchParams.get("gone") || "").split(",").map(Number).filter((t) => Number.isInteger(t) && t > 0);
       if (gone.length && Array.isArray(match.joiners)) {
-        const before = match.joiners.length;
         match.joiners = match.joiners.filter((j) => !gone.includes(j.ticket));
-        if (match.joiners.length !== before) {
-          await this.state.storage.put("match", match);
-        }
       }
-      const open = room(match) > 0;
+      // Only the authenticated host may say the match is running. Direct-address players have no service ticket,
+      // so room alone cannot decide whether another player may join. Viewers never take a player reservation.
+      const active = url.searchParams.get("active") === "1" && match.spectators;
+      if (match.active && !active) await this.lobby(match, "gone", match.code);
+      match.active = active;
+      if (active) {
+        match.expires = now + kLifetime;
+        await this.state.storage.setAlarm(match.expires);
+      }
+      match.seen = now;
+      match.viewers = (match.viewers || []).filter((v) => now - v.seen < kHere);
+      await this.state.storage.put("match", match);
+      const open = room(match) > 0 && !active;
       if (open && now - (this.waitingSaid || 0) > 15000) {
         // (the stats told this host is waiting, now and then: it is counted as waiting while it has been told lately)
         this.waitingSaid = now;
         const stats = this.env.STATS.get(this.env.STATS.idFromName("all"));
         await stats.fetch("https://stats/waiting", { method: "POST", body: JSON.stringify({ code: match.code, game: match.game, listed: match.listed }) }).catch(() => {});
       }
-      if (open && now - this.told > kTell) {
+      if ((open || active) && now - this.told > kTell) {
         this.told = now;
         await this.lobby(match, "seen", match.code);
       }
@@ -339,8 +356,41 @@ export class Match {
       }
       const joiners = joinersOf(match);
       const invited = match.invited && open ? { invite: match.invited } : {};
-      return json(joiners.length ? { joined: true, addresses: joiners[0].addresses, joiners: joiners.map((j) => [j.ticket, ...j.addresses].join(" ")), ...invited }
-                                 : { joined: false, ...invited });
+      return json(joiners.length || active ? {
+        joined: true,
+        addresses: joiners.length ? joiners[0].addresses : [],
+        joiners: joiners.map((j) => [j.ticket, ...j.addresses].join(" ")),
+        viewers: active ? match.viewers.map(({ token, addresses }) => ({ token, addresses })) : [],
+        watchers: active ? match.viewers.flatMap((v) => v.addresses.map((a) => v.token + "@" + a)) : [],
+        ...invited,
+      } : { joined: false, ...invited });
+    }
+    if (url.pathname === "/watch") {
+      let body;
+      try { body = JSON.parse(await request.text()); }
+      catch { return json({ error: "not JSON" }, 400); }
+      if (!match.spectators || !match.active || now - (match.seen || 0) > kSeen) {
+        return json({ error: "This match is not available to watch." }, 409);
+      }
+      if (cleanText(body.game) !== match.game || cleanText(body.version) !== match.version ||
+          cleanText(body.build) !== match.build || Number(body.protocol) !== match.protocol) {
+        return json({ error: "Watching needs the same game and build as the players." }, 409);
+      }
+      const addresses = cleanAddresses(body.addresses);
+      if (!addresses.length) return json({ error: "No viewer address supplied." }, 400);
+      match.viewers = (match.viewers || []).filter((v) => now - v.seen < kHere);
+      // Retry with the token from the first response rather than consuming another slot.
+      let viewer = match.viewers.find((v) => v.token === body.token);
+      if (!viewer) {
+        if (match.viewers.length >= 8) return json({ error: "The spectator connections are full. Try again shortly." }, 429);
+        viewer = { token: crypto.randomUUID(), addresses, seen: now };
+        match.viewers.push(viewer);
+      } else {
+        viewer.addresses = addresses;
+        viewer.seen = now;
+      }
+      await this.state.storage.put("match", match);
+      return json({ addresses: match.host, token: viewer.token });
     }
     if (url.pathname === "/join") {
       let body;
@@ -358,10 +408,15 @@ export class Match {
       if (cleanText(body.build) !== match.build) {
         return json({ error: "The two copies of the game are different builds: use the same release on both." }, 409);
       }
+      // A different wire protocol cannot finish the UDP handshake; reject it before reserving a player's place.
+      // Older clients/stored matches did not always supply this field, so keep their missing-field behavior.
+      if (Number(body.protocol) && match.protocol && Number(body.protocol) !== match.protocol) {
+        return json({ error: "The two copies of the game use different online protocols: use the same release on both." }, 409);
+      }
       // (the people at the joining machine: one in a match of two, whatever it says)
       const people = matchPlayers(match) === 4 && Number(body.people) === 2 ? 2 : 1;
       const left = room(match);
-      if (left <= 0) {
+      if (left <= 0 || match.active) {
         return json({ error: fullSaid(match) }, 409);
       }
       if (people > left) {
@@ -430,7 +485,8 @@ export class Lobby {
         if (now - m.seen > kSeen) {
           delete matches[code];
         } else if (m.protocol === protocol && (!game || m.game === game)) {
-          shown.push({ game: m.game, title: m.title || m.game, version: m.version || "", code, name: m.name, waiting: Math.round((now - m.made) / 1000) });
+          shown.push({ game: m.game, title: m.title || m.game, version: m.version || "", code, name: m.name,
+                       waiting: Math.round((now - m.made) / 1000), watching: m.watching === true });
         }
       }
       shown.sort((a, b) => a.waiting - b.waiting);
@@ -441,7 +497,8 @@ export class Lobby {
       return json({});
     }
     if (url.pathname === "/seen") {
-      matches[body.code] = { game: body.game, title: body.title, version: body.version, name: body.name, protocol: body.protocol, made: body.made, seen: now };
+      matches[body.code] = { game: body.game, title: body.title, version: body.version, name: body.name, protocol: body.protocol,
+                             made: body.made, seen: now, watching: body.watching === true };
     } else if (url.pathname === "/gone") {
       delete matches[body.code];
     }

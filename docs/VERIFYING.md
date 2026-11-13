@@ -5,6 +5,25 @@ arithmetic and flag routines (`machine/m68k.h`) and count the same cycles, so th
 exactly. The same goes for the Z80 sound driver (`sound/z80.cpp`, `runtime/recomp_z80.cpp`):
 `--cpu` sets how both CPUs are run, and both checks below cover both.
 
+## Online first-to sets
+
+Online set scoring has a separate ROM-free check, `make check-first-to` (also part of `make check` without
+`GAME`). It exercises FT5/FT10, alternating winners, draws, CPU exclusion, result debouncing, duplicate
+confirmations, rollback-result replacement, and fresh sessions.
+
+After building a supported game, `FIRST_TO=1 GAME=mvsc tools/check_online.sh 600` checks FT5 under simulated
+delay, jitter and packet loss; use `FIRST_TO=2` for FT10 or `FIRST_TO=0` for Casual. The guest deliberately chooses
+a different format. Both must take the host's choice, and the confirmed board hashes must match each other and
+an offline replay. Repeat with `GAME=xmvsf`. These short network tests do not finish a set: also play through to
+the target, check that both screens award each game once, show the winner briefly and return to the launcher,
+then start another session to check the fresh score. Keep any local screenshots, recordings and game data outside
+the contribution.
+
+`GAME=mvsc FIRST_TO=2 bash tools/check_set_finish.sh` plays a full FT10 set with made-up controls, packet loss,
+delay and rollback. It requires both peers to exit successfully before the frame limit with matching final results,
+score events and confirmed hashes. Use `GAME=xmvsf FIRST_TO=1` for FT5. These headless runs check the end of the set;
+also check, in two windows started from the launcher, that both close and the launcher is back.
+
 ## Run modes (`--cpu`)
 
 | Mode | What runs |
@@ -34,7 +53,7 @@ routines calling one another on the host's stack, and time running out inside th
 
 ## `make check-release` (FRAMES=n): the build with no translated code
 
-Builds the game with no translated code (what CI builds, and a checkout before `make explore`) and runs the ladder
+Builds the game with no translated code (what CI builds, and a checkout before its first full `make`) and runs the ladder
 movie, five runs at once, comparing the picture hashes frame for frame: two runs of that build alike; that build
 against the translated build run with `--cpu interp` (the same program but for the translated code); and the
 translated build against itself with `--cpu blocks` (its translated code is the interpreter's over the whole ladder).

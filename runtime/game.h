@@ -100,12 +100,27 @@ struct Game {
     // For a game whose sources can ask for a wider picture (video.h, Video::wide): how many columns the
     // widest will have with the player's choices as they are, so that the window starts in its shape
     int (*widestPicture)() = nullptr;
+    // The board's monitor stood on end (a vertical game, drawn lying on its side: ROT270, the top of its picture at the
+    // right): the port turns the picture upright unless the Display page says otherwise (port.h, Turned)
+    bool vertical = false;
     // For the port's camera (its zoom, port/zoom.h): where to look to see player `player`'s fighter (0: player 1's
     // side), in the picture's pixels; false when there is none to look at now (no fight on). Not given: no zoom.
     bool (*focus)(int player, int &x, int &y) = nullptr;
     // ... how far above the feet that place is, and how tall a fighter stands from its feet, so that the camera keeping
     // both in the picture shows them whole
     int focusLift = 44, focusTall = 120;
+    // ... and something else the camera keeping both in the picture keeps in it too (a mode's ball: fight/court.h), in
+    // the picture's pixels, with how far it reaches from there; false when there is none now
+    bool (*focusAlso)(int &x, int &y, int &reach) = nullptr;
+    // A mode whose picture is wider than the shape it is shown in (the court's whole stage, fight/court.h): the columns of
+    // that shape (0: none), and whether its camera follows the play (else it shows all of the picture). The port looks at
+    // the picture through that camera (port/main.cpp, Port::Framed): from all of it (bars above) to closer than a picture
+    // of those columns, as the fighters (focus) and focusAlso need.
+    int (*framedColumns)() = nullptr;
+    bool (*framedFollows)() = nullptr;
+    // A mode that wants the zoom while it runs: the in-game menu's Zoom row's choice (4: by distance), or 0 for none (the
+    // player's own choice put back when it ends)
+    int (*zoomWanted)() = nullptr;
     // ... and the game's panel (its health bars, clock and names), which the zoom that follows the fight's distance leaves
     // where it is: its objects (true for an object of the panel, by its tile's number and attributes, as
     // Video::hideObject has them), and the scroll screens it is drawn on (Video::layerMask's bits). Not given: that
@@ -123,11 +138,18 @@ struct Game {
     // rewrites are needed now (training mode, a mode of the sources' own, widescreen, a cheat that works inside
     // one). Not given: never (the game's own code throughout).
     bool (*rewritesNeeded)() = nullptr;
+    // The game's sources decide the board's timing (machine.h, SetBoardTiming) in place of the port's arcade_timing
+    // feature, which is then left out: a shooting game's Slowdown row (shmup/shmup.h). Not given: arcade_timing.
+    bool (*boardTiming)() = nullptr;
     // For a custom soundtrack (machine/soundtrack.h): where the sound program's table of songs has song 0's entry,
     // and how many entries it has (0: no custom soundtrack); and the names of the music, where they are known.
     // musicBelow: for a sound program whose songs' data do not tell music from effects (machine/soundtrack.h), the
     // songs below it are the music (0: told by their data)
-    uint32_t songTable = 0, songCount = 0, musicBelow = 0;
+    // songAddresses: for a sound program whose table gives a song's place with the bank above the ROM's size (Super
+    // Street Fighter II's: 108411 for 8411), the bits of it that are the place in the ROM (0: all)
+    // songEntry: the size of a song's entry, 4 (a three-byte place, then one more), or 2 (the classic CPS-1 board's: a
+    // two-byte place, high byte first, which is where it is in the sound ROM)
+    uint32_t songTable = 0, songCount = 0, musicBelow = 0, songAddresses = 0, songEntry = 4;
     std::vector<Song> songs;
 };
 Game &TheGame();
@@ -177,6 +199,10 @@ void SetRunningAhead(bool on);
 // slower of this and the speed the player chose in the menu is the speed the game runs at.
 void SetSlowMotion(int by);
 int SlowMotion();
+// ... and quickly: `times` frames of the game in every picture of the screen (1: as it is), when the player's speed in
+// the menu is the board's (a faster or slower choice of theirs goes first). Seen and heard, as the menu's faster speeds.
+void SetFastMotion(int times);
+int FastMotion();
 
 // The launcher's Multi game page starts each game it plays in turn with --multi MODE:CHOICES (fight/battle.h has
 // "endless"): what this one was started with ("": none). When the game's sources are done with it, they end the
@@ -213,6 +239,7 @@ struct HudBox {
     int x, y, width, height;
     uint8_t r, g, b;
     uint8_t fill = 56;
+    bool round = false; // (an ellipse filling the rectangle, with no outline: a ball and the like)
     bool operator==(const HudBox &) const = default;
 };
 void SetBoxes(std::vector<HudBox> boxes);
@@ -244,8 +271,11 @@ using PointerLoadFn = uint32_t (*)(uint32_t address, uint32_t value);
 void SetPointerLoads(PointerLoadFn fn, uint32_t low, uint32_t high);
 PointerLoadFn PointerLoads(uint32_t &low, uint32_t &high);
 
-// Work RAM as the game's sources see it: by the 68000's address (FF0000-FFFFFF). Values are big-endian.
-void SetRam(uint8_t *ram);
+// Work RAM as the game's sources see it: by the 68000's address (FF0000-FFFFFF). Values are big-endian. The video
+// memory (900000-92FFFF) is reached the same way, for a game that keeps its variables there (Dimahoo's base register
+// points at 928000).
+constexpr uint32_t kVideoRamLow = 0x900000, kVideoRamHigh = 0x930000;
+void SetRam(uint8_t *ram, uint8_t *videoRam = nullptr);
 uint8_t *Ram(uint32_t address);
 inline uint8_t Ram8(uint32_t address) {
     return *Ram(address);

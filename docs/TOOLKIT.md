@@ -12,8 +12,9 @@ This page is for people making or working on ports. To play, see the [main page]
 
 - **Translation ahead of time.** `tools/recomp.py` turns the game's 68000 program into C++, and
   `tools/recompz80.py` does the same for the sound CPU's. The code is found by reading the program
-  and by made-up play (`tools/explore.sh`). Code it has not found yet runs in an interpreter, and is
-  counted, so that the count can be driven to zero.
+  and by made-up play (`tools/explore.sh`); the addresses play found are kept with the game, in
+  `games/<id>/entries.txt` (and `entries.txt.z80`), so every checkout starts from them. Code it has not found
+  yet runs in an interpreter, and is counted, so that the count can be driven to zero.
 - **A machine of its own, not an emulator.** The 68000, the bus, interrupts and timing, the settings
   EEPROM, the ROM set and its cipher (`machine/`), the picture (`video/`), and the Z80 and QSound
   (`sound/`). Capcom's sound driver, version 2.01b, is also there as ordinary C++ (`sound/driver.cpp`),
@@ -35,20 +36,23 @@ This page is for people making or working on ports. To play, see the [main page]
   put in the place of the last, the fighters drawn over a stage another machine shows. A game describes where it
   keeps the players, the camera and the round's result, and makes the ring out's two movements at its players'
   step: one knocked out thrown back and falling through the floor, the winner put in the next match in the air
-  as it was ([docs/FIGHT.md](FIGHT.md)).
+  as it was ([docs/FIGHT.md](FIGHT.md)). The court, a ball game, is one of their kinds, its ball and rules
+  `fight/court.h`: a game says where its attacks and bodies are and how strong each attack is ([docs/COURT.md](COURT.md)).
 - **The beat-'em-up modes.** Attract mode (all of a game's show, or only some of its parts), a score attack (one
   credit, no continue or cheats, the best score kept), a stage viewer (a game taken unseen to a stage and its camera
   moved along the stage's way, a few pixels a frame so that the game draws as it goes) and a model viewer (a
   character alone at any size, with its animations put into its record frame by frame) are `beat/beat.h`. A game
   says how it gets to a stage, where its camera, its characters' animations and their objects are, and leaves out
   the parts of its show not wanted.
-- **The shoot-'em-up modes.** Practice (a stage or its boss, with the ships, bombs and power chosen, put back as it
-  began with one button: the start is kept as a save state in memory; the last attempt replayed from it), its aids (the
-  ships' hit boxes, the enemies' shots and bodies, a readout, a summary at each boss and stage end), a score attack, a
-  caravan (a few minutes, a ship for every one lost), a boss rush (the way between the bosses run unseen, the ships out
-  of harm, each boss met from a snapshot taken a few seconds before it) and a stage viewer are `shmup/shmup.h`. A game
-  says how it gets from Start to its first stage, where it keeps its stage, its boss's clock, its scores and its ships,
-  and draws its own boxes.
+- **The shoot-'em-up modes.** Training mode (a stage or its boss, with the ships, bombs and power chosen, put back as it
+  began with one button: the start is kept as a save state in memory; the last attempt replayed from it), its aids (a
+  readout, a summary at each boss and stage end), a score attack, a caravan (a few minutes, a ship for every one lost),
+  a boss rush (the way between the bosses run unseen, the ships out of harm, each boss met from a snapshot taken a few
+  seconds before it), a stage viewer (its speed chosen, or taken over: faster, back through states it keeps, stopped),
+  and in every mode the hit boxes (the ships', the enemies' bodies', the shots' points: shown with the object list
+  the board shows, not the game's places of this frame) and the slowdown (the board's timing, or the 68000
+  overclocked) are `shmup/shmup.h`. A game says how it gets from Start to its first stage, where it keeps its stage,
+  its boss's clock, its scores and its ships, how late its object list is (`listLag`), and draws its own boxes.
 - **The model viewer.** One character alone, on a stage or on plain white or black, at a quarter of its size to 25
   times, moved with player 1's controls or going through any of its animations (one, or all in turn, repeated, in slow
   motion) is `model/model.h`, for every game's "Model viewer" (the fighting games' and the beat-'em-ups'): the
@@ -311,7 +315,7 @@ name and choices in each: the collection's launcher then shows it once, for all 
 | `fight/` | What a fighting game's training mode has in common, its fighting modes, and the players' own colours ([docs/FIGHT.md](FIGHT.md)) |
 | `model/` | The model viewer every game can have, the fighting games' and the beat-'em-ups' alike |
 | `beat/` | A beat-'em-up's alternative modes: attract mode, score attack, the stage viewer (`modes.cpp`) and the model viewer (`model.cpp`, on `model/`) |
-| `shmup/` | A shoot-'em-up's practice mode and alternative modes: practice and its aids, attract mode, score attack, caravan, boss rush, the stage viewer (`modes.cpp`) |
+| `shmup/` | A shoot-'em-up's training mode and alternative modes: training mode and its aids, attract mode, score attack, caravan, boss rush, the stage viewer, and the hit boxes and the slowdown in every mode (`modes.cpp`) |
 | `recomp-common/` | A copy of [recomp-common](https://github.com/tmcleroy/recomp-common) (the in-game menu, the settings rules, the launcher), made by `tools/sync-common.sh`; never changed here |
 | `launcher/` | What this toolkit tells the shared launcher (`recomp-common/launcher`; SDL 3 + Dear ImGui): `src/description.cpp` has the words for a ROM set, the check of the player's, the game's arguments and the buttons that can be chosen, for one game's launcher or the collection's |
 | `games/` | The games ([the main page](../README.md) has the list) |

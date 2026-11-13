@@ -23,8 +23,11 @@
 // its own (the hashes and the chat go the same way). A match of two is two machines, one player at each.
 #pragma once
 
+#include "first_to.h"
+
 #include <array>
 #include <cstdint>
+#include <cstdlib>
 #include <deque>
 #include <future>
 #include <map>
@@ -73,13 +76,14 @@ public:
     static constexpr int kDefaultPort = 7845;
     // The packets' layout (2: the host's state sent at the start); two copies must have the same to play, and the
     // lobby shows only matches of this one (the launcher asks with it too)
-    static constexpr int kProtocol = 8; // (3: the version said in the hello and to the service; 4: the welcome's flags;
+    static constexpr int kProtocol = 10; // (3: the version said in the hello and to the service; 4: the welcome's flags;
                                         // 5: the welcome's program words, so two regions' sets play together;
                                         // 6: each player's name in the hello and the welcome, and the chat;
                                         // 7: two players at each machine, as the welcome says, and each one's controls;
                                         // 8: up to four machines, the host between them: the people at each in the
                                         // hello, the machines and their players as the match begins, each machine's
-                                        // controls and the chat's lines passed on by the host)
+                                        // controls and the chat's lines passed on by the host;
+                                        // 10: combined with upstream first-to, spectators and mode events (upstream 9))
     static constexpr int kMostSeats = 2;    // players at one machine
     static constexpr int kMostMachines = 4; // machines in a match: the host's, and up to three joining
     static constexpr int kMostAhead = 8;    // frames run on guessed controls at most
@@ -91,13 +95,19 @@ public:
     // the host is, and the host where they are; the two then reach each other directly
     static constexpr const char *kService = "https://cps2recomp-online.tmcleroy.workers.dev";
 
+    static const char *Service() {
+        const char *value = std::getenv("CPS2RECOMP_NET_SERVICE");
+        return value && *value ? value : kService;
+    }
+
     // What --host, --join and the --net-* options asked for
     struct Settings {
         bool hosting = false;
+        bool watching = false, spectators = false;
         std::string address; // (joining: the host's)
         int port = kDefaultPort;
         int delay = kDefaultDelay;
-        std::string service = kService; // (--net-service URL; "off": none, the host's address only)
+        std::string service = Service(); // (--net-service URL; "off": none, the host's address only)
         std::string renewCode, renewSecret; // (hosting again after a player left: the code they know, kept)
         bool listed = false;  // (--net-list) the match in the lobby: on the Online card's list of open matches
         std::string name;     // (--net-name) ... under this name
@@ -129,6 +139,8 @@ public:
     const std::string &Secret() const {
         return secret;
     }
+    bool Watching() const { return settings.watching; }
+    uint64_t WatchStart() const { return watchStart; }
     bool Hosting() const {
         return settings.hosting;
     }
@@ -169,6 +181,7 @@ public:
     int Machines() const {
         return machines;
     }
+    int Players() const { return needed; }
     int Local() const {
         return local;
     }
@@ -187,6 +200,9 @@ public:
     // The frame, with this machine's players' controls (People(Local()) of them, its first player's first): rollback
     // first if a guess was wrong, then the frame itself
     void Frame(Port &port, const uint16_t *controls);
+    void BeginSet();
+    const FirstTo &Set() const { return set; }
+    bool SetFinished() const { return setFinished; }
     // Why the match is over ("" while it goes on); and whether that is a failure (a desync, a machine lost)
     std::string ended;
     bool failed = false;
@@ -208,10 +224,39 @@ public:
     static constexpr size_t kChatMost = 60;
     void Say(const std::string &text);
     std::vector<std::pair<int, std::string>> TakeHeard();
+    void Command(const std::string &text);
+    std::vector<std::pair<int, std::string>> TakeEvents();
 
 private:
     friend struct NetplayTest; // ROM-free protocol regressions exercise the production transitions
     Settings settings;
+    FirstTo set;
+    uint64_t setSent = 0, setAgreed = 0;
+    bool setFinished = false;
+    void FinishSet();
+    void PruneEvents();
+    bool SetAgrees() const;
+    static constexpr size_t kWatchFrames = 4096;
+    struct WatchInput { std::array<uint16_t, 4> players{}; uint32_t hash = 0; };
+    struct Viewer {
+        NetAddress address;
+        std::string token;
+        std::vector<uint8_t> welcome, state;
+        uint32_t pieces = 0, start = 0, ack = 0;
+        uint64_t heard = 0, sent = 0;
+    };
+    std::vector<Viewer> viewers;
+    std::vector<std::pair<std::string, NetAddress>> invitedViewers;
+    std::array<WatchInput, kWatchFrames> watchInputs{};
+    uint64_t watchStart = 0, watchUpTo = 0, watchSent = 0;
+    std::string watchToken;
+    bool watchModeChanged = false;
+
+    uint64_t watchAsked = 0;
+    void WatchPacket(const uint8_t *data, size_t size, const NetAddress &from);
+    void WatchSend();
+    void WatchCapture(Port &port);
+    void WatchService();
     UdpSocket socket;
     // (the handshake: the hello or the welcome, sent again until answered)
     std::vector<uint8_t> greeting;
@@ -219,7 +264,7 @@ private:
     uint64_t began = 0, sent = 0;
     bool hostIn = false;
     void Hello();             // (joining: the hello, with the people here and the service's number for this machine)
-    void Welcome(Port &port); // (hosting: the welcome, and the game as it is, for those who come)
+    void Welcome(Port &port, const std::vector<uint8_t> *snapshot = nullptr, uint32_t start = 0); // (hosting: the welcome, and the game as it is, for those who come)
     int joinPort = 0;
     void StartAt(int frames);
     // The game as the match begins: the host's, sent to each joining machine in pieces (compressed), which it takes as
@@ -248,7 +293,7 @@ private:
     std::array<uint8_t, 12> stunId{};
     uint64_t stunBegan = 0, stunSent = 0;
     std::string seenAs; // ("IP:PORT")
-    std::future<HttpAnswer> asking;
+    std::future<HttpAnswer> asking, watchAsking;
     uint64_t askedAt = 0;
     uint64_t codeAt = 0; // (hosting: when the code was had, for how often it is asked about: Introduce)
     std::string secret;
@@ -302,6 +347,9 @@ private:
         uint32_t ticket = 0;
         uint64_t lastHeard = 0, greeted = 0;
         uint32_t chunksHad = 0;  // (hosting: the pieces of the state it has)
+        int setTarget = 0;
+        std::array<int, 2> setScore{};
+        bool setReady = false;
         bool started = false;    // (hosting: its controls have come since the match began)
         std::array<uint64_t, kMostMachines> has{}; // how far it has each machine's controls (the frames before)
         uint64_t frame = 0;      // the frame it was on, last heard
@@ -327,6 +375,7 @@ private:
         std::vector<uint8_t> state; // the game before the frame
         std::array<Controls, kMostMachines> used{}; // each machine's controls it was run with
         uint32_t hash = 0;          // the game after it, last run (when hashed)
+        FirstTo::Frame result;     // replaced on rollback; scored only when this frame is confirmed
     };
     std::array<Kept, kKept> kept;
     uint64_t confirmed = 0;  // the frames before this were run with every machine's real controls
@@ -355,6 +404,12 @@ private:
     std::vector<std::pair<int, std::string>> heard;
     void Queue(int from, const std::string &text, const Link *except);
     void SendChat(uint64_t now);
+    // (events: each player's, by the frame they happen before; this side's waiting for its next frame; the earliest
+    // frame an event came for that has been run already; those to say)
+    std::map<uint64_t, std::string> events[kMostMachines];
+    std::vector<std::string> commanded;
+    uint64_t eventFrom = UINT64_MAX;
+    std::vector<std::pair<int, std::string>> eventNotices;
 
     void SendTo(const NetAddress &to, const std::vector<uint8_t> &packet);
     void SendAll(const std::vector<uint8_t> &packet, const Link *except = nullptr);

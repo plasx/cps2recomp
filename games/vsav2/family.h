@@ -47,6 +47,7 @@ inline constexpr Place kPlaceList[] = {
     {0x00A4BA, 0x008CD2}, // an instruction, 24 on alike
     {0x00A60A, 0x008E2E}, // an instruction, 24 on alike
     {0x00AE7C, 0x0096BC}, // an instruction, 10 on alike
+    {0x00AF14, 0x009764}, // the end of the stage's choice for a one-player game (training.cpp's StageChosenForOne), found by its instructions by hand
     {0x00D560, 0x00BBAC}, // an instruction, 24 on alike
     {0x014E8A, 0x01357E}, // an instruction, 9 on alike
     {0x015030, 0x013724}, // an instruction, 10 on alike
@@ -172,6 +173,7 @@ inline constexpr Place kPlaceList[] = {
     {0x027F70, 0x0271C4}, // the animation on a step (battle.cpp), found by its instructions: subq.b #1,0x20(a6) and the frame's flags by hand
     {0x028192, 0x0273E6}, // an instruction, 24 on alike
     {0x02824C, 0x0274A8}, // an instruction, 24 on alike
+    {0x029406, 0x028708}, // by hand: the catch test (court.cpp: no catches on the court), the same routine
     {0x02B7FA, 0x02AFD4}, // an instruction, 8 on alike
     {0x02C7C0, 0x02BF9C}, // an instruction, 3 on alike
     {0x02CE44, 0x02C620}, // an instruction, 19 on alike
@@ -614,6 +616,7 @@ inline constexpr Place kPlaceList[] = {
     {0xFF8131, 0xFF8131}, // a variable the code names so (6/6)
     {0xFF8133, 0xFF8165}, // a variable the code names so (7/10)
     {0xFF8134, 0xFF8134}, // a variable the code names so (75/75)
+    {0xFF8135, 0xFF8135}, // by hand: the round's first hit made (court.cpp), between FF8134 and FF8137, both where they were
     {0xFF8137, 0xFF8137}, // a variable the code names so (12/12)
     {0xFF813E, 0xFF813E}, // a variable the code names so (16/16)
     {0xFF8140, 0xFF8140}, // a variable the code names so (15/15)
@@ -700,7 +703,7 @@ inline constexpr const char *kStageNames[] = {
 
 
 // Other games' stages, shown after these (fight/guest_stages.h; src/stages.cpp: each run from its own stage code), in the
-// lists a stage is chosen from by name (training's, versus's, the stage viewer's): the first Darkstalkers' (each
+// lists a stage is chosen from by name (the menu's Stage page's, the stage viewer's): the first Darkstalkers' (each
 // character's, in that game's order), then Street Fighter Alpha 2's (game.cfg's guests, in the same order)
 template <size_t A, size_t B>
 constexpr std::array<const char *, A + B> Joined(const std::array<const char *, A> &a, const std::array<const char *, B> &b) {

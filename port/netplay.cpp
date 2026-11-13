@@ -17,6 +17,7 @@
 #include "netplay.h"
 
 #include "game_info.h"
+#include "../fight/battle.h"
 #include "../recomp-common/launcher/src/online.h"
 #include "../recomp-common/launcher/src/run_program.h"
 #include "../runtime/game.h"
@@ -39,6 +40,17 @@ using namespace cps2recomp;
 namespace port {
 
 namespace {
+    // The pages of the modes that can be played online (fight/court.cpp's, fight/battle.cpp's)
+    constexpr const char *kBallBattle = "Ball battle", *kTagTeamBattle = "Tag team battle";
+    bool HasFeature(const char *name) {
+        for (const Feature &feature : TheGame().features) {
+            if (std::string(feature.name) == name) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     uint64_t NowMs() {
         return static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -60,6 +72,10 @@ namespace {
         kChatAck = 10, // either: how many lines of the chat have come, all before that one
         kWaiting = 11, // host -> joining, the state had: how many more players the match waits for
         kStart = 12,  // host -> joining: the match begins: the machines, each one's players and name, and which this is
+        kSetDone = 14,
+        kWatchHello = 15,
+        kWatchControls = 16,
+        kWatchAck = 17,
         kOver = 13,   // host -> joining: the match is over, another machine having gone (the host waits for all again)
     };
 
@@ -116,7 +132,8 @@ namespace {
         }
     };
 
-    // Which features the joining side takes from the host: those that change how the game plays. Each player's
+    // Which features the joining side takes from the host: those that change how the game plays, and the stage (the
+    // menu's Stage page). Each player's
     // own: how the picture is shown and the sound. Off for both: the cheats (a fair match), and the rest (the
     // alternative modes, training, the viewers: kept apart from the save state, or not worked out for two machines
     // yet), and run-ahead (rollback does what it does). A mode marked for matches (kFeatureMatch: tag team) is the host's.
@@ -129,8 +146,21 @@ namespace {
         if (feature.flags & kFeatureMatch) {
             return Share::Host;
         }
-        if (name.rfind("widescreen", 0) == 0 || category == "Game" || category == "Board") {
+        if (name == "online_set" || name.rfind("widescreen", 0) == 0 || category == "Game" || category == "Board") {
             return Share::Host;
+        }
+        if (category == "Stage") {
+            // (the stage is the game's own choice made for it, the same on both machines or they part: the host's.
+            // Another game's stage is drawn by each side that has its ROM set; the fight is the same without)
+            return Share::Host;
+        }
+        // (the modes played online, Port::OnlineEvent: their pages as the host has them, each player's own fighters
+        // then sent by them; how the court is looked at, each player's own)
+        if (category == std::string(kBallBattle) || category == std::string(kTagTeamBattle)) {
+            return name == "court_camera" ? Share::Own : Share::Host;
+        }
+        if (name.size() > 9 && name.compare(name.size() - 9, 9, "_hitboxes") == 0) {
+            return Share::Own; // (a shooting game's hit boxes, on its Cheats page: drawn over the picture only)
         }
         if (category == "Cheats") {
             return Share::Off; // (a fair match: no damage for the host's player, say, is not)
@@ -350,6 +380,9 @@ bool UdpSocket::Resolve(const std::string &host, int port, NetAddress &address, 
     if (use->ai_family == AF_INET) {
         sockaddr_in6 mapped{};
         mapped.sin6_family = AF_INET6;
+#ifdef SIN6_LEN
+        mapped.sin6_len = sizeof(mapped); // (as received addresses have it, so the two compare equal)
+#endif
         mapped.sin6_port = reinterpret_cast<const sockaddr_in *>(use->ai_addr)->sin_port;
         mapped.sin6_addr.s6_addr[10] = 0xFF;
         mapped.sin6_addr.s6_addr[11] = 0xFF;
@@ -470,6 +503,8 @@ bool Netplay::MatchDecides(const Feature &feature) {
 void Netplay::StartAt(int frames) {
     delay = std::clamp(frames, 0, kMostAhead); // (the first `delay` frames: nobody's controls)
     upTo.fill(static_cast<uint64_t>(delay));
+    for (auto &stream : events) stream.clear();
+    eventFrom = UINT64_MAX;
 }
 
 // The players the match is for, as the host's features have it: four in tag team's 2 vs 2, two otherwise (the
@@ -562,9 +597,11 @@ std::vector<uint8_t> Netplay::Start(int machine) const {
 // The welcome for those who come: the delay, the board settings, the features that change play, and the game as it
 // is now (the board's reset, or, with --net-arcade, wherever the host's play has got to); the same for each until the
 // match begins
-void Netplay::Welcome(Port &port) {
-    needed = MatchPlayers();
-    people = needed > 2 ? PeopleHere() : 1;
+void Netplay::Welcome(Port &port, const std::vector<uint8_t> *snapshot, uint32_t start) {
+    if (!snapshot) {
+        needed = MatchPlayers();
+        people = needed > 2 ? PeopleHere() : 1;
+    }
     Writer welcome(kWelcome);
     welcome.U16(kProtocol);
     welcome.U8(static_cast<uint8_t>(delay));
@@ -579,7 +616,8 @@ void Netplay::Welcome(Port &port) {
     // (the game as it is now: the state the match begins from, sent in pieces, after this side's program's words
     // where another set's may differ, which the other side takes: their count, then each one's address and both views)
     std::vector<uint8_t> raw;
-    port.KeepState(raw);
+    if (snapshot) raw = *snapshot;
+    else port.KeepState(raw);
     const std::vector<uint32_t> words = OnlineWords();
     Writer program(kWelcome);
     program.U16(static_cast<uint16_t>(words.size()));
@@ -605,18 +643,35 @@ void Netplay::Welcome(Port &port) {
     welcome.Text(SetName(port));
     welcome.Text(settings.name);
     welcome.U8(static_cast<uint8_t>(needed)); // (the players the match is for)
+    welcome.U32(start);
+    // Viewers receive the final roster with their snapshot; players get it later in kStart.
+    welcome.U8(snapshot ? static_cast<uint8_t>(machines) : 0);
+    if (snapshot) {
+        for (int m = 0; m < machines; ++m) {
+            welcome.U8(static_cast<uint8_t>(roster[m].people));
+            for (int person = 0; person < roster[m].people; ++person)
+                welcome.U8(static_cast<uint8_t>(roster[m].players[person]));
+            welcome.Text(roster[m].name);
+        }
+    }
+    for (uint32_t value : set.Saved()) welcome.U32(value);
     greeting = welcome.out;
 }
 
 void Netplay::Hello() {
-    Writer hello(kHello);
+    Writer hello(settings.watching ? kWatchHello : kHello);
     hello.U16(kProtocol);
     hello.Text(GAME_ID);
     hello.U32(build);
     hello.Text(RECOMP_VERSION);
     hello.Text(settings.name);
-    hello.U8(static_cast<uint8_t>(PeopleHere()));
-    hello.U32(ticket);
+    if (settings.watching) {
+        if (watchToken.empty()) watchToken = std::to_string(NowMs()) + "-" + std::to_string(random);
+        hello.Text(watchToken);
+    } else {
+        hello.U8(static_cast<uint8_t>(PeopleHere()));
+        hello.U32(ticket);
+    }
     greeting = hello.out;
 }
 
@@ -894,9 +949,9 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
             toldPlayers = needed;
             toldHere = people;
             const std::string players = ",\"players\":" + std::to_string(needed) + ",\"here\":" + std::to_string(people);
-            ask("POST", "/v1/host", "{" + again + about + listed + players + ",\"addresses\":" + Addresses() + "}");
+            ask("POST", "/v1/host", "{" + again + about + listed + players + (settings.spectators ? ",\"spectators\":true" : "") + ",\"addresses\":" + Addresses() + "}");
         } else {
-            ask("POST", "/v1/join/" + joinCode, "{" + about + ",\"people\":" + std::to_string(PeopleHere()) + ",\"addresses\":" + Addresses() + "}");
+            ask("POST", std::string(settings.watching ? "/v1/watch/" : "/v1/join/") + joinCode, "{" + about + ",\"people\":" + std::to_string(PeopleHere()) + ",\"addresses\":" + Addresses() + "}");
         }
         intro = Intro::Asking;
         return true;
@@ -920,6 +975,13 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
             return true;
         }
         if (answer.status == 200) {
+            if (settings.watching) {
+                watchToken = JsonText(answer.body, "token");
+                Writer hello(kWatchHello);
+                hello.U16(kProtocol); hello.Text(GAME_ID); hello.U32(build);
+                hello.Text(RECOMP_VERSION); hello.Text(settings.name); hello.Text(watchToken);
+                greeting = hello.out;
+            }
             for (const std::string &text : JsonList(answer.body, "addresses")) {
                 NetAddress to;
                 if (address(text, to)) {
@@ -1234,8 +1296,10 @@ int Netplay::Waiting(Port &port, std::string &error) {
     if (now - sent > (welcomed ? 100 : 250)) {
         if (welcomed) {
             // (how many pieces have come, and, once all have, that this machine is ready and still here)
-            Writer ack(kPieceAck);
+            Writer ack(settings.watching ? kWatchAck : kPieceAck);
+            if (settings.watching) ack.Text(watchToken);
             ack.U32(chunksHad);
+            if (settings.watching) ack.U32(static_cast<uint32_t>(watchUpTo));
             SendTo(links[0].address, ack.out);
         } else {
             for (const NetAddress &to : candidates) {
@@ -1249,6 +1313,7 @@ int Netplay::Waiting(Port &port, std::string &error) {
         if (TakeStun(packet, got) || got < 5 || memcmp(packet, kMagic, 4)) {
             continue;
         }
+        if (settings.watching && std::none_of(candidates.begin(), candidates.end(), [&](const NetAddress &a) { return a == from; })) continue;
         Reader in(packet, static_cast<size_t>(got));
         if (packet[4] == kRefuse) {
             error = in.Text();
@@ -1297,6 +1362,11 @@ int Netplay::Waiting(Port &port, std::string &error) {
                     raw.erase(raw.begin(), raw.begin() + (program.at - raw.data()));
                     port.PutBackState(raw);
                     stateHad = true;
+                    if (settings.watching) {
+                        current = watchUpTo = watchStart;
+                        fprintf(stderr, "online: spectating from confirmed frame %llu\n", static_cast<unsigned long long>(watchStart));
+                        return 1;
+                    }
                     sent = 0; // (said at once: the host begins when everyone has it)
                 }
             } else if (packet[4] == kWaiting && stateHad) {
@@ -1369,7 +1439,16 @@ int Netplay::Waiting(Port &port, std::string &error) {
             }
             at = comma + 1;
         }
+        // (this player's own fighters for player 2's side of the modes played online, as they had them: sent as this
+        // side's first event, after the host's pages are taken)
+        std::string mine;
+        for (const char *row : {"court_two", "team_2_1", "team_2_2", "team_2_3"}) {
+            if (HasFeature(row)) {
+                mine += (mine.empty() ? "" : ",") + std::string(row) + "=" + std::to_string(FeatureSetting(row));
+            }
+        }
         Settle(false, host);
+        Command("hello," + mine); // ("hello": not said on the screen, Port::HearEvents)
         stateSize = in.U32();
         state.assign(in.U32(), 0);
         if (!in.ok || stateSize == 0 || state.empty() || state.size() > (16u << 20)) {
@@ -1381,7 +1460,34 @@ int Netplay::Waiting(Port &port, std::string &error) {
         const std::string hostSet = in.Text();
         links[0].name = in.Text();
         needed = in.U8(); // (the players the match is for: the host's choice)
-        if (!in.ok || (needed != 2 && needed != 4)) {
+        watchStart = in.U32();
+        const int count = in.U8();
+        bool rosterOk = settings.watching ? count >= 2 && count <= kMostMachines : count == 0;
+        std::array<bool, 4> assigned{};
+        int total = 0;
+        for (int m = 0; m < count && m < kMostMachines; ++m) {
+            Seats seats;
+            seats.people = in.U8();
+            if (seats.people < 1 || seats.people > kMostSeats) { rosterOk = false; break; }
+            for (int person = 0; person < seats.people; ++person) {
+                const int player = in.U8();
+                if (player >= needed || player >= 4 || assigned[player]) { rosterOk = false; break; }
+                assigned[player] = true;
+                seats.players[person] = player;
+                total++;
+            }
+            seats.name = in.Text();
+            roster[m] = seats;
+        }
+        std::array<uint32_t, FirstTo::kSaved> saved{};
+        for (auto &value : saved) value = in.U32();
+        if (settings.watching) {
+            machines = count;
+            current = watchUpTo = watchStart;
+            rosterOk = rosterOk && total == needed;
+            set.Load(saved);
+        }
+        if (!in.ok || !rosterOk || (needed != 2 && needed != 4)) {
             error = "The host's welcome did not make sense.";
             return -1;
         }
@@ -1400,7 +1506,7 @@ std::string Netplay::MachineName(int machine) const {
     if (machine < 0 || machine >= machines) {
         return "";
     }
-    return Printable(machine == local ? settings.name : roster[machine].name, kNameMost);
+    return Printable(!settings.watching && machine == local ? settings.name : roster[machine].name, kNameMost);
 }
 
 std::string Netplay::Name(int player) const {
@@ -1418,6 +1524,7 @@ void Netplay::Queue(int from, const std::string &text, const Link *except) {
 }
 
 void Netplay::Say(const std::string &text) {
+    if (settings.watching) return;
     const std::string line = Printable(text, kChatMost);
     if (!line.empty()) {
         Queue(local, line, nullptr);
@@ -1491,6 +1598,7 @@ uint64_t Netplay::Slowest() const {
 }
 
 void Netplay::SendInputs() {
+    if (settings.watching) return;
     for (Link &link : links) {
         SendInputs(link);
     }
@@ -1518,11 +1626,28 @@ void Netplay::SendInputs(Link &link) {
         const uint64_t from = first(machine);
         out.U8(static_cast<uint8_t>(machine));
         out.U32(static_cast<uint32_t>(from));
-        out.U8(static_cast<uint8_t>(upTo[machine] - from));
-        for (uint64_t at = from; at < upTo[machine]; at++) {
+        uint64_t to = from;
+        size_t bytes = 0;
+        while (to < upTo[machine] && to - from < 64) {
+            const auto event = events[machine].find(to);
+            const size_t size = 2 * roster[machine].people +
+                (event == events[machine].end() ? 0 : 6 + event->second.size());
+            if (bytes + size > 1200) break;
+            bytes += size;
+            ++to;
+        }
+        out.U8(static_cast<uint8_t>(to - from));
+        for (uint64_t at = from; at < to; at++) {
             for (int person = 0; person < roster[machine].people; person++) {
                 out.U16(inputs[machine][at % kInputs][person]);
             }
+        }
+        auto event = events[machine].lower_bound(from);
+        const auto end = events[machine].lower_bound(to);
+        out.U8(static_cast<uint8_t>(std::distance(event, end)));
+        for (; event != end; ++event) {
+            out.U32(static_cast<uint32_t>(event->first));
+            out.Text(event->second);
         }
     }
     out.U8(static_cast<uint8_t>(machines));
@@ -1570,12 +1695,44 @@ void Netplay::End(const std::string &why, bool failure, const Link *from) {
 void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
     Reader in(data, size);
     const uint64_t now = NowMs();
+    if (settings.watching && data[4] == kWatchControls) {
+        const std::string token = in.Text();
+        const uint64_t first = in.U32();
+        const unsigned count = in.U8();
+        std::vector<WatchInput> frames(count);
+        for (auto &f : frames) {
+            for (auto &value : f.players) value = in.U16();
+            f.hash = in.U32();
+        }
+        if (!in.ok || token != watchToken || first > watchUpTo || first + count > current + kWatchFrames) return;
+        for (uint64_t at = watchUpTo; at < first + count; ++at) watchInputs[at % kWatchFrames] = frames[at - first];
+        watchUpTo = std::max(watchUpTo, first + count);
+        link.lastHeard = now;
+        return;
+    }
+    if (settings.watching && data[4] != kBye && data[4] != kRefuse) return;
     switch (data[4]) {
+    case kSetDone: {
+        const int target = in.U8(), first = in.U8(), second = in.U8();
+        const bool ready = in.U8() != 0;
+        if (in.ok && size == 9 && target == set.Target() &&
+            ((first == target && second < target) || (second == target && first < target))) {
+            link.setTarget = target;
+            link.setScore = {first, second};
+            link.setReady = !settings.hosting && ready;
+            link.lastHeard = now;
+        }
+        return;
+    }
     case kBye:
+        if (!settings.watching && ended.empty() && set.Winner() >= 0 && SetAgrees()) {
+            FinishSet();
+            return;
+        }
         // (two machines: the other player; more: who it was)
         if (ended.empty()) {
             left = true;
-            End(machines <= 2 ? "The other player left."
+            End(settings.watching ? "The match ended." : machines <= 2 ? "The other player left."
                 : link.name.empty() ? (settings.hosting ? "A player left." : "The host left.")
                                     : Printable(link.name, kNameMost) + " left.",
                 false, &link);
@@ -1635,6 +1792,7 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
         uint64_t first = 0;
         unsigned count = 0;
         Controls inputs[256];
+        std::vector<std::pair<uint64_t, std::string>> events;
     } blocks[kMostMachines];
     for (unsigned b = 0; b < count; b++) {
         Block &block = blocks[b];
@@ -1650,6 +1808,14 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
             for (int person = 0; person < roster[block.machine].people; person++) {
                 block.inputs[n][person] = in.U16();
             }
+        }
+        const unsigned eventCount = in.U8();
+        if (eventCount && needed != 2) return;
+        for (unsigned n = 0; n < eventCount; ++n) {
+            const uint64_t at = in.U32();
+            const std::string text = in.Text();
+            if (at < block.first || at >= block.first + block.count || text.size() > 512) return;
+            block.events.push_back({at, text});
         }
     }
     const unsigned acks = in.U8();
@@ -1678,6 +1844,16 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
     for (unsigned b = 0; b < count; b++) {
         const Block &block = blocks[b];
         uint64_t &known = upTo[block.machine];
+        // A later block cannot silently skip missing input/events; cumulative retransmission repairs the gap.
+        if (block.first > known) continue;
+        for (const auto &[at, text] : block.events) {
+            if (at >= confirmed && at < confirmed + kInputs && !events[block.machine].count(at)) {
+                events[block.machine][at] = text;
+                eventNotices.push_back({block.machine, text});
+                watchModeChanged = true;
+                if (at <= current) eventFrom = std::min(eventFrom, at);
+            }
+        }
         for (uint64_t at = known; at < block.first + block.count; at++) {
             if (at >= block.first && at < confirmed + kInputs) {
                 inputs[block.machine][at % kInputs] = block.inputs[at - block.first];
@@ -1711,6 +1887,7 @@ void Netplay::Pump() {
 
 bool Netplay::Ready(uint64_t frame) {
     Pump();
+    WatchService();
     uint8_t packet[2048];
     NetAddress from;
     int got;
@@ -1721,6 +1898,11 @@ bool Netplay::Ready(uint64_t frame) {
         }
         Link *link = LinkFrom(from);
         if (!link) {
+            if (settings.hosting && settings.spectators &&
+                (packet[4] == kWatchHello || packet[4] == kWatchAck || packet[4] == kBye)) {
+                WatchPacket(packet, static_cast<size_t>(got), from);
+                continue;
+            }
             if (settings.hosting && packet[4] == kHello) {
                 // (someone else, now the match is on)
                 Writer refuse(kRefuse);
@@ -1743,11 +1925,35 @@ bool Netplay::Ready(uint64_t frame) {
             link.greeted = now;
         }
     }
+    WatchSend();
     Compare();
     SendChat(now);
+    if (ended.empty() && set.Winner() >= 0 && !settings.watching) {
+        if (!setSent || now - setSent >= 100) {
+            Writer done(kSetDone);
+            done.U8(static_cast<uint8_t>(set.Target()));
+            done.U8(static_cast<uint8_t>(set.Score(0)));
+            done.U8(static_cast<uint8_t>(set.Score(1)));
+            done.U8(settings.hosting && SetAgrees());
+            SendAll(done.out);
+            setSent = now;
+        }
+        for (const Link &link : links) {
+            if (link.setTarget == set.Target() &&
+                (link.setScore[0] != set.Score(0) || link.setScore[1] != set.Score(1))) {
+                End("The games disagree on the final set score.", true, nullptr);
+            }
+        }
+        if (ended.empty() && SetAgrees()) {
+            if (!setAgreed) setAgreed = now;
+            SendInputs();
+            if (now - setAgreed >= 2000) FinishSet();
+            return false;
+        }
+    }
     for (const Link &link : links) {
         if (ended.empty() && now - link.lastHeard > 5000) {
-            lost = true;
+            lost = set.Winner() < 0 && !settings.watching;
             End(machines <= 2                ? "Lost the connection to the other player."
                 : !settings.hosting          ? "Lost the connection to the host."
                 : link.name.empty()          ? "Lost the connection to a player."
@@ -1759,6 +1965,17 @@ bool Netplay::Ready(uint64_t frame) {
         return false;
     }
     current = frame;
+    if (settings.watching) {
+        if (now - watchSent >= 30 && !links.empty()) {
+            Writer ack(kWatchAck);
+            ack.Text(watchToken);
+            ack.U32(chunksHad);
+            ack.U32(static_cast<uint32_t>(watchUpTo));
+            SendTo(links[0].address, ack.out);
+            watchSent = now;
+        }
+        return frame < watchUpTo;
+    }
     // Too far ahead of another machine's controls: wait for them
     if (frame >= Slowest() + kMostAhead) {
         waits++;
@@ -1797,15 +2014,45 @@ void Netplay::Run(Port &port, uint64_t at, bool drawing) {
             players[roster[machine].players[person]] = k.used[machine][person];
         }
     }
+    for (int machine = 0; needed == 2 && machine < machines; ++machine) {
+        const auto event = events[machine].find(at);
+        if (event != events[machine].end()) port.OnlineEvent(machine, event->second);
+    }
+    const bool versus = set.Target() && battle::TwoPeopleNow();
     port.machine->drawing = drawing;
     port.Step(players);
     port.machine->drawing = true;
+    if (set.Target()) {
+        k.result = {battle::RoundResultNow(), battle::RoundsToWin(), versus};
+    }
     if ((at + 1) % kHashEvery == 0 || port.hashFile) {
         k.hash = port.StateHash();
     }
 }
 
 void Netplay::Frame(Port &port, const uint16_t *controls) {
+    if (settings.watching) {
+        current = port.frame;
+        const WatchInput &f = watchInputs[port.frame % kWatchFrames];
+        uint16_t players[Machine::kMaxPlayers] = {};
+        std::copy(f.players.begin(), f.players.end(), players);
+        const bool versus = set.Target() && battle::TwoPeopleNow(); // (as Run reads it: before the frame)
+        port.Step(players);
+        if (set.Target()) {
+            // (the viewer's frames are all confirmed ones: the set's score counted as the players count it)
+            if (set.Confirm(port.frame, {battle::RoundResultNow(), battle::RoundsToWin(), versus}) >= 0) {
+                fprintf(stderr, "online: set FT%d frame %llu score %d-%d%s\n", set.Target(),
+                        static_cast<unsigned long long>(port.frame + 1), set.Score(0), set.Score(1),
+                        set.Winner() >= 0 ? " complete" : "");
+            }
+        }
+        if (f.hash || port.hashFile) {
+            const uint32_t hash = port.StateHash();
+            if (port.hashFile) fprintf(port.hashFile, "%llu %08x\n", static_cast<unsigned long long>(port.frame + 1), hash);
+            if (f.hash && hash != f.hash) { ended = "Spectator playback came apart from the match."; failed = true; }
+        }
+        return;
+    }
     const auto began = std::chrono::steady_clock::now();
     current = port.frame;
     const uint64_t frame = port.frame;
@@ -1813,6 +2060,15 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
         inputs[local][(frame + delay) % kInputs][person] = controls[person];
     }
     upTo[local] = frame + delay + 1;
+    if (needed == 2 && !commanded.empty()) {
+        std::string &line = events[local][frame + delay];
+        for (const std::string &text : commanded) {
+            line += (line.empty() ? "" : ",") + text;
+            eventNotices.push_back({local, text});
+        }
+        commanded.clear();
+        watchModeChanged = true;
+    }
     // How far ahead of each link this machine is: the frame it is on, over what the link said last
     for (Link &link : links) {
         link.ahead = link.ahead * 0.95 + (static_cast<double>(frame) - static_cast<double>(link.frame)) * 0.05;
@@ -1833,6 +2089,8 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
             }
         }
     }
+    if (eventFrom >= confirmed && eventFrom < frame) wrong = std::min(wrong, eventFrom);
+    eventFrom = UINT64_MAX;
     if (wrong < frame) {
         const size_t sound = port.machine->audio.size();
         port.PutBackState(kept[wrong % kKept].state);
@@ -1851,6 +2109,20 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
     const uint64_t upToAll = std::min(Slowest(), frame);
     for (uint64_t at = confirmed; at < upToAll; at++) {
         const Kept &k = kept[at % kKept];
+        if (settings.hosting && settings.spectators) {
+            WatchInput &watch = watchInputs[at % kWatchFrames];
+            watch = {};
+            for (int m = 0; m < machines; ++m)
+                for (int person = 0; person < roster[m].people; ++person)
+                    watch.players[roster[m].players[person]] = inputs[m][at % kInputs][person];
+            watch.hash = (at + 1) % kHashEvery == 0 ? k.hash : 0;
+        }
+        const int won = set.Confirm(at, k.result);
+        if (won >= 0) {
+            fprintf(stderr, "online: set FT%d frame %llu score %d-%d%s\n", set.Target(),
+                    static_cast<unsigned long long>(at + 1), set.Score(0), set.Score(1),
+                    set.Winner() >= 0 ? " complete" : "");
+        }
         if (!port.opt.movieRecord.empty()) {
             // (--record: what every player held, as the frame had them, for the frames that have the real ones)
             Movie::Pads pads{};
@@ -1871,14 +2143,69 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
         }
     }
     confirmed = upToAll;
+    PruneEvents();
     Compare();
     // The frame itself
     port.KeepState(kept[frame % kKept].state);
+    WatchCapture(port);
     Run(port, frame, true);
     const double took = std::chrono::duration<double>(std::chrono::steady_clock::now() - began).count();
     worst = std::max(worst, took);
     over += took > 1 / Machine::kFramesPerSecond;
     Report();
+}
+
+void Netplay::PruneEvents() {
+    for (int machine = 0; machine < machines; ++machine) {
+        uint64_t before = confirmed;
+        // Simulation confirmation does not prove that every recipient got this event. Retain it until
+        // each link that needs this stream acknowledges the controls carrying it.
+        for (const Link &link : links) {
+            if (machine != link.machine && (settings.hosting || machine == local)) before = std::min(before, link.has[machine]);
+        }
+        auto &stream = events[machine];
+        stream.erase(stream.begin(), stream.lower_bound(before));
+    }
+}
+
+void Netplay::Command(const std::string &text) {
+    size_t length = text.size();
+    for (const auto &pending : commanded) length += pending.size() + 1;
+    if (!text.empty() && length <= 512 && !settings.watching && needed == 2) {
+        commanded.push_back(text);
+    }
+}
+
+std::vector<std::pair<int, std::string>> Netplay::TakeEvents() {
+    std::vector<std::pair<int, std::string>> out;
+    out.swap(eventNotices);
+    return out;
+}
+
+void Netplay::BeginSet() {
+    if (settings.watching) { // (a viewer has the host's set as of where it came in: Waiting)
+        fprintf(stderr, "online: set format %s, %d-%d\n", set.Target() == 5 ? "FT5" : set.Target() == 10 ? "FT10" : "Casual",
+                set.Score(0), set.Score(1));
+        return;
+    }
+    set.Begin(battle::OnlineSets() ? FeatureSetting("online_set") : 0);
+    fprintf(stderr, "online: set format %s\n", set.Target() == 5 ? "FT5" : set.Target() == 10 ? "FT10" : "Casual");
+}
+
+bool Netplay::SetAgrees() const {
+    if (!set.Target() || set.Winner() < 0 || links.empty()) return false;
+    for (const Link &link : links) {
+        if (link.setTarget != set.Target() || link.setScore[0] != set.Score(0) || link.setScore[1] != set.Score(1) ||
+            (!settings.hosting && !link.setReady)) return false;
+    }
+    return true;
+}
+
+void Netplay::FinishSet() {
+    setFinished = true;
+    left = lost = false;
+    ended = "Player " + std::to_string(set.Winner() + 1) + " wins the FT" + std::to_string(set.Target()) +
+            " set (" + std::to_string(set.Score(0)) + "-" + std::to_string(set.Score(1)) + ").";
 }
 
 // Our hashes against each link's (the host's against every joining machine's, a joining machine's against the
@@ -1922,6 +2249,134 @@ void Netplay::Compare() {
     }
 }
 
+// Viewers have their own state transfer and confirmed-input cursor. Their acknowledgements never
+// change the player's acknowledgement, rollback window, or timing.
+void Netplay::WatchPacket(const uint8_t *data, size_t size, const NetAddress &from) {
+    Reader in(data, size);
+    auto foundViewer = std::find_if(viewers.begin(), viewers.end(), [&](const Viewer &v) { return v.address == from; });
+    if (data[4] == kWatchHello) {
+        const unsigned protocol = in.U16();
+        const std::string game = in.Text();
+        const uint32_t theirs = in.U32();
+        const std::string version = in.Text();
+        in.Text(); // viewers do not take a player name or enter player chat
+        const std::string token = in.Text();
+        const bool invited = settings.service == "off" || std::any_of(invitedViewers.begin(), invitedViewers.end(),
+            [&](const auto &v) { return v.first == token && v.second == from; });
+        if (!in.ok || !invited || token.empty() || token.size() > 64) return;
+        if (protocol != kProtocol || game != GAME_ID || theirs != build || version != RECOMP_VERSION) {
+            Writer refuse(kRefuse); refuse.Text("Watching needs the same game and build as the players.");
+            SendTo(from, refuse.out); return;
+        }
+        if (foundViewer == viewers.end()) {
+            if (viewers.size() >= 8) return;
+            Viewer v; v.address = from; v.token = token; v.heard = NowMs();
+            viewers.push_back(std::move(v));
+            fprintf(stderr, "online: spectator connected (%zu)\n", viewers.size());
+        } else if (foundViewer->token == token) foundViewer->heard = NowMs();
+        return;
+    }
+    if (foundViewer == viewers.end()) return;
+    if (data[4] == kBye) { viewers.erase(foundViewer); return; }
+    if (data[4] != kWatchAck) return;
+    const std::string token = in.Text();
+    const uint32_t pieces = in.U32(), ack = in.U32();
+    Viewer &v = *foundViewer;
+    if (!in.ok || token != v.token || v.welcome.empty() || pieces > (v.state.size() + kChunk - 1) / kChunk ||
+        ack < v.start || ack > confirmed) return;
+    v.pieces = std::max(v.pieces, pieces);
+    v.ack = std::max(v.ack, ack);
+    v.heard = NowMs();
+}
+
+void Netplay::WatchCapture(Port &port) {
+    if (!settings.hosting || !settings.spectators) return;
+    bool pending = watchModeChanged;
+    watchModeChanged = false;
+    for (const auto &stream : events) pending |= stream.lower_bound(confirmed) != stream.end();
+    if (pending) {
+        Writer stop(kRefuse);
+        stop.Text("The online mode changed. Choose Watch to reconnect.");
+        for (const Viewer &viewer : viewers) SendTo(viewer.address, stop.out);
+        viewers.clear();
+        return;
+    }
+    for (Viewer &v : viewers) {
+        if (!v.welcome.empty()) continue;
+        Netplay copy(settings);
+        copy.delay = delay; copy.set = set; copy.needed = needed; copy.people = people; copy.machines = machines; copy.roster = roster;
+        copy.Welcome(port, &kept[confirmed % kKept].state, static_cast<uint32_t>(confirmed));
+        v.welcome = std::move(copy.greeting); v.state = std::move(copy.state);
+        v.start = v.ack = static_cast<uint32_t>(confirmed);
+        break; // bound snapshot compression to one viewer per game frame
+    }
+}
+
+void Netplay::WatchSend() {
+    const uint64_t now = NowMs();
+    for (auto it = viewers.begin(); it != viewers.end();) {
+        Viewer &v = *it;
+        // Admission happens in Ready(), before Frame() assigns a confirmed starting snapshot.
+        // An uninitialized viewer's zero cursor is not a claim to replay from the match's start.
+        if (now - v.heard > 10000 || (!v.welcome.empty() && confirmed > uint64_t(v.ack) + kWatchFrames)) {
+            Writer bye(kRefuse); bye.Text("Spectator connection fell behind. Choose Watch to reconnect.");
+            SendTo(v.address, bye.out);
+            it = viewers.erase(it); continue;
+        }
+        ++it;
+        if (v.welcome.empty() || now - v.sent < 40) continue;
+        v.sent = now;
+        const uint32_t pieces = static_cast<uint32_t>((v.state.size() + kChunk - 1) / kChunk);
+        if (v.pieces < pieces) {
+            if (!v.pieces) SendTo(v.address, v.welcome);
+            for (uint32_t n = v.pieces; n < pieces && n < v.pieces + 4; ++n) {
+                Writer piece(kPiece); piece.U32(n);
+                const size_t at = size_t(n) * kChunk;
+                piece.Bytes(v.state.data() + at, std::min(kChunk, v.state.size() - at));
+                SendTo(v.address, piece.out);
+            }
+        } else {
+            Writer inputs(kWatchControls); inputs.Text(v.token); inputs.U32(v.ack);
+            const uint32_t count = static_cast<uint32_t>(std::min<uint64_t>(64, confirmed - v.ack));
+            inputs.U8(static_cast<uint8_t>(count));
+            for (uint32_t n = 0; n < count; ++n) {
+                const auto &f = watchInputs[(v.ack + n) % kWatchFrames];
+                for (uint16_t value : f.players) inputs.U16(value);
+                inputs.U32(f.hash);
+            }
+            SendTo(v.address, inputs.out);
+        }
+    }
+}
+
+void Netplay::WatchService() {
+    if (!settings.hosting || !settings.spectators || code.empty() || secret.empty()) return;
+    const uint64_t now = NowMs();
+    if (watchAsking.valid()) {
+        if (watchAsking.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        const auto answer = watchAsking.get();
+        invitedViewers.clear();
+        if (answer.status == 200) {
+            for (const std::string &item : JsonList(answer.body, "watchers")) {
+                const size_t split = item.find('@');
+                if (split == std::string::npos || split > 64) continue;
+                std::string host, ignored; int port = 0; NetAddress address;
+                UdpSocket::Split(item.substr(split + 1), host, port);
+                if (port && UdpSocket::Resolve(host, port, address, ignored)) {
+                    invitedViewers.push_back({item.substr(0, split), address});
+                    Writer punch(kPunch); SendTo(address, punch.out);
+                }
+            }
+        }
+    }
+    if (now - watchAsked < 2000) return;
+    watchAsked = now;
+    const std::string url = settings.service + "/v1/host/" + code.substr(0, 3) + code.substr(4) + "?secret=" + secret + "&active=1";
+    watchAsking = std::async(std::launch::async, [url] {
+        const auto [status, body] = Http("GET", url, ""); return HttpAnswer{status, body};
+    });
+}
+
 // (what tests hold back goes before the match does: a machine told the match is over hears why)
 Netplay::~Netplay() {
     while (!late.empty()) {
@@ -1942,6 +2397,8 @@ void Netplay::Leave(bool reopening) {
     if (again) {
         bye.Text(ended.empty() ? "The match is restarting." : ended);
     }
+    Writer viewerBye(kBye);
+    for (const Viewer &viewer : viewers) socket.Send(viewer.address, viewerBye.out.data(), viewerBye.out.size());
     for (const Link &link : links) {
         for (int n = 0; n < 3; n++) {
             socket.Send(link.address, bye.out.data(), bye.out.size());

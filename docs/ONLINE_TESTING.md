@@ -39,6 +39,22 @@ for layout in 1,1 2,2 2,1,1 1,2,1 1,1,2 1,1,1,1; do
 done
 ```
 
+The merged online features can be combined with each layout. For example:
+
+```sh
+WATCH=1 FIRST_TO=1 PEOPLE=1,1,1,1 GAME=mvsc tools/check_online.sh 3000
+```
+
+`FIRST_TO=0|1|2` checks Casual/FT5/FT10 negotiation: every joining machine asks for a different format, and every
+playing machine must use the host's and agree on any set-score events through the shared confirmed frame. A short
+run may contain no scored game; it does not establish completion of a whole FT5/FT10 set. `WATCH=1` joins a viewer
+after play begins, compares at least 100 of its absolute frame hashes against the host, and verifies its attempted
+chat never reaches the players. The viewer uses synthetic inputs too; its playback must still match the match.
+
+`--watch CODE` (or a direct address) now starts a spectator. Memory-write diagnostics use
+`--watch-writes LOW[-HIGH]` instead, with hexadecimal 68000 addresses. Update older diagnostic commands that
+used `--watch` for memory writes; that spelling now belongs to online viewing.
+
 Each run compares confirmed state hashes between the machines and against replay of the recorded inputs. It also
 checks controller ownership, names and chat delivery with injected delay, jitter and packet loss. The four-person
 runs enable Cross Fever. With layout `1,1,2`, the final pair receives P3 and P4, because P1 and P2 were already
@@ -79,7 +95,48 @@ simulation. Connection success and simulation correctness are different checks.
 Relay fallback remains a separate design: establish direct-connection failure reasons first, then evaluate relay
 latency, capacity and operating cost. Neither a relay nor real internet acceptance is provided by the local tests.
 
+## Local verification, November 13, 2026
+
+The merge with upstream `eea67d1` was checked on an arm64 Mac with the MVC interpreter build, Apple Clang 21,
+SDL 3.4.20 and Node 25.9.0. The combined wire protocol is 10; new save states use version 12.
+
+- The MVC build and `make check` passed, including the repository audit, shared-source check, first-to scoring,
+  example build and launcher smoke checks.
+- 34 Worker tests, the service's separate spectator suite and 10 production C++ protocol groups passed. Added
+  cases cover same-code rehost ticket retention, protocol rejection before reservation, all-peer set agreement,
+  reliable mode-event delivery, four-person mode restrictions and four-stream/read-only spectators.
+- The Cross Fever reset/state suite passed. It also checks the marked MVC parts of both version-11 layouts,
+  preserves the next section when legacy parts are absent, and rejects missing required version-12 parts. These
+  focused section tests do not promise that arbitrary old whole-game saves load across different builds.
+- All six layouts passed 3,000-frame runs with `WATCH=1 FIRST_TO=1`, 50 ms simulated delay, 25 ms jitter and 5%
+  packet loss. Assignments, names, chat, host-selected FT5 and offline replay passed. The four-person runs enabled
+  Cross Fever. Counts below are common confirmed hashes, not total frames requested:
+
+| People per machine | Playing machines' matching frames | Viewer's matching host frames |
+|---|---:|---:|
+| `1,1` | 2997 | 2405 |
+| `2,2` | 2998 | 2585 |
+| `2,1,1` | 2987 | 2961 |
+| `1,2,1` | 2990 | 2972 |
+| `1,1,2` | 2989 | 2972 |
+| `1,1,1,1` | 2988 | 2969 |
+
+- A separate 6,700-frame player run used the production Worker through its loopback-only test service. The viewer
+  joined by code at confirmed frame 4,576 (first hash 4,577), beyond the 4,096-frame history window, and matched
+  1,124 host hashes. Its synthetic controls and exit did not affect the players; their hashes matched too.
+- A 120-frame headless `--watch-writes FF0000-FF0001` run emitted memory-write diagnostics and exited normally,
+  instead of attempting to spectate. Shell syntax and whitespace checks passed.
+
+These runs establish local simulation, negotiation and replay behavior, not completion of a whole FT5/FT10 set.
+All-peer set completion is covered by the production protocol test with synthetic scores; whole-set gameplay,
+physical controllers, real-router/NAT and four-machine internet tests remain separate. The Worker was not deployed.
+Windows/Linux runtime checks and hosted CI results are not implied by these macOS results. Build warnings included
+existing deprecated codecvt use and the installed SDL library targeting a newer macOS SDK.
+
 ## Local verification, November 11, 2026
+
+These results belong to commit `4b578bf`, before the later upstream merge. They do not validate changes added by
+that merge; the expanded set/spectator checks above must be rerun on the merged build.
 
 On an arm64 Mac, with the interpreter build of MVC, Apple Clang 21, SDL 3.4.20 and Node 25.9.0:
 

@@ -43,7 +43,11 @@ check-widescreen: port
 else
 
 .PHONY: check audit example smoke check-common clean games collection collection-app android
-check: audit check-common smoke
+check: audit check-common check-first-to smoke
+
+.PHONY: check-first-to
+check-first-to:
+	@sh tools/check_first_to.sh
 
 audit:
 	@tools/audit.sh
@@ -90,5 +94,6 @@ check-crossfever-reset:
 	@mkdir -p build/checks
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -Wno-unused-parameter \
 		-Iruntime -Ifight -Imachine -Ivideo -Isound -Igames/mvsc/src \
-		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp -o build/checks/crossfever-reset
+		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp games/mvsc/src/tag.cpp \
+		-o build/checks/crossfever-reset
 	@build/checks/crossfever-reset

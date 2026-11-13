@@ -25,8 +25,11 @@
 # started once the host has the one before; their lines of the chat go through the host). MACHINES=3: three, the host's
 # two (players 1 and 3) and one at each of the others (2, then 4).
 # PEOPLE lists the people at each machine in arrival order, host first (1,2,1 or 1,1,2 also test a joining pair).
+# FIRST_TO=0|1|2 checks the host's Casual/FT5/FT10 choice against different choices on all joining machines.
+# WATCH=1 adds a viewer after play starts and compares its confirmed frame hashes with the host's.
 #
-#   [ARCADE=1] [FOUR=1 | MACHINES=3|4 | PEOPLE=1,2,1] [JOIN_ROM=<set>] GAME=<id> check_online.sh [FRAMES]
+#   [ARCADE=1] [FOUR=1 | MACHINES=3|4 | PEOPLE=1,2,1] [FIRST_TO=0|1|2] [WATCH=1] [JOIN_ROM=<set>]
+#     GAME=<id> check_online.sh [FRAMES]
 set -eu
 GAME=${GAME:?which game: GAME=<id>}
 ROM=${ROM:-rom/$GAME}
@@ -52,6 +55,20 @@ esac
 IFS=, read -ra counts <<< "$layout"
 machines=${#counts[@]}
 hostPeople=${counts[0]}
+first_to=${FIRST_TO:-}
+case "$first_to" in ""|0|1|2) ;; *) echo "FIRST_TO must be 0, 1 or 2"; exit 1 ;; esac
+guest_set=""
+if [ -n "$first_to" ]; then
+    if ! "build/$GAME/$GAME" --list-features | grep -q '^online_set'; then
+        echo "FAILED: this game has not opted in to online sets"
+        exit 1
+    fi
+    guest_set="online_set=$(( (first_to + 1) % 3 ))"
+fi
+watch=${WATCH:-0}
+case "$watch" in 0|1) ;; *) echo "WATCH must be 0 or 1"; exit 1 ;; esac
+watch_args=()
+[ "$watch" = 1 ] && watch_args=(--net-spectators)
 pids=
 cleanup() {
     for pid in $pids; do kill "$pid" 2>/dev/null || true; done
@@ -65,7 +82,7 @@ mkdir -p "$work"
 # (the joining machines: join, or join1 to join3)
 joiners=join
 [ "$machines" -gt 2 ] && joiners=$(seq -f 'join%g' 1 $((machines - 1)) | paste -sd' ' -)
-for name in host $joiners; do
+for name in host $joiners watch; do
     : > "$work/online-$name.ini"
     rm -f "$work/online-$name.txt" "$work/online-$name.eeprom"
 done
@@ -73,6 +90,11 @@ done
 play=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '($2=="Game"||$2=="Cheats"||$2=="Display") && NF==5 &&
     $1 !~ /^(display_|window_size|run_ahead|custom_soundtrack|widescreen_walls|custom_colours)/ {print $1}' | paste -sd, -)
 play="${play:+$play,}widescreen"
+# (the host's stage choice is the match's on games with the top-level Stage page)
+if "build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$1=="stage" && $2=="Stage" {found=1} END {exit !found}'; then
+    play="$play,stage=2"
+fi
+if [ -n "$first_to" ]; then play="$play,online_set=$first_to"; fi
 # (the people at each machine, and the made-up play's players)
 if [ -n "$four" ]; then
     # (the on-or-off features marked for matches: kFeatureMatch, 512 in --list-features's flags)
@@ -101,7 +123,7 @@ said() { # FILE PATTERN: once a line of FILE has it (10 seconds at most)
     return 1
 }
 side host --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
-    --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" &
+    --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" ${watch_args[@]+"${watch_args[@]}"} &
 pids=$!
 # (the joining side once the host waits: its socket is open by then, however long the game took to start)
 said "$work/online-host.err" '^online: Waiting for' || { echo "FAILED: host not waiting after 10 seconds"; exit 1; }
@@ -112,7 +134,7 @@ for name in $joiners; do
     n=$((n + 1))
     joinPeople=${counts[$n]}
     side "$name" --auto "$((11 + n)):0:$joinPeople" --join "127.0.0.1:$port" --net-people "$joinPeople" --net-name "$(named "$name")" \
-        --net-say "$((90 + 30 * n)):good luck from $(named "$name")!" &
+        --features "$guest_set" --net-say "$((90 + 30 * n)):good luck from $(named "$name")!" &
     pids="$pids $!"
     # (each once the one before has come, their players going by it)
     if [ "$machines" -gt 2 ]; then
@@ -121,12 +143,31 @@ for name in $joiners; do
         }
     fi
 done
+if [ "$watch" = 1 ]; then
+    said "$work/online-host.err" '^online: the match is on:' || { echo "FAILED: match did not start for viewer"; exit 1; }
+    side watch --watch "127.0.0.1:$port" --net-name "Viewer" --auto 99:0:4 --net-say "viewer must not chat" &
+    pids="$pids $!"
+    said "$work/online-watch.err" '^online: spectating from confirmed frame ' || {
+        echo "FAILED: viewer did not receive a confirmed starting state"; tail -5 "$work/online-watch.err"; exit 1;
+    }
+fi
 set -- host $joiners
+[ "$watch" = 1 ] && set -- "$@" watch
 for pid in $pids; do
     wait "$pid" || { echo "FAILED: the $1 stopped"; tail -3 "$work/online-$1.err"; status=1; }
     shift
 done
 pids=
+if [ -n "$first_to" ]; then
+    case "$first_to" in 0) format=Casual ;; 1) format=FT5 ;; 2) format=FT10 ;; esac
+    for name in host $joiners; do
+        if ! grep -qx "online: set format $format" "$work/online-$name.err"; then
+            echo "FAILED: $name did not take the host's $format choice"
+            status=1
+        fi
+    done
+    [ "$status" = 0 ] && echo "ok: all $machines playing machines took the host's $format choice"
+fi
 # (each machine's log ends where it last had every other's controls: the shortest is what all have)
 lines=$frames
 for name in host $joiners; do
@@ -146,6 +187,31 @@ else
         fi
     done
     [ "$same" = 1 ] && echo "ok: the $machines machines the same over $lines frames, with $play"
+fi
+if [ -n "$first_to" ]; then
+    scores() { awk -v last="$lines" '/^online: set FT[0-9]+ frame / && $5 <= last' "$1"; }
+    for name in $joiners; do
+        if ! cmp -s <(scores "$work/online-host.err") <(scores "$work/online-$name.err"); then
+            echo "FAILED: host and $name awarded different set scores"
+            status=1
+        fi
+    done
+    [ "$status" = 0 ] && echo "ok: set-score events match through the last shared confirmed frame"
+fi
+if [ "$watch" = 1 ]; then
+    # Viewers begin at a confirmed snapshot, not frame zero. Compare by absolute frame number, requiring actual play.
+    if awk 'NR==FNR {hash[$1]=$2; next} ($1 in hash) {if (hash[$1]!=$2) bad=1; matched++}
+            END {if (bad || matched<100) exit 1; print "ok: viewer matches " matched " confirmed host frames"}' \
+            "$work/online-host.txt" "$work/online-watch.txt"; then :; else
+        echo "FAILED: spectator playback differs or contains fewer than 100 shared frames"
+        status=1
+    fi
+    for name in host $joiners; do
+        if grep -q 'online: chat: Viewer:' "$work/online-$name.err"; then
+            echo "FAILED: viewer chat reached $name"
+            status=1
+        fi
+    done
 fi
 # (every machine knows every player's name, and has every other machine's line of the chat: sent straight to it, or
 # through the host, through the lost packets)

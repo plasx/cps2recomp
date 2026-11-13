@@ -222,7 +222,8 @@ namespace {
 } // namespace
 
 void CrossFeverState(Archive &ar) {
-    if (ar.version != 0 && ar.version < 11) { // (a save state from before has none)
+    // Version 11 existed both with this preview's clock and without it in upstream MVC.
+    if (ar.version != 0 && (ar.version < 11 || (ar.version == 11 && !ar.NextMark(0x43465653)))) {
         g_gaugeSteps = 0;
         return;
     }

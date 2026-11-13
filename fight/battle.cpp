@@ -5,6 +5,9 @@
 // the ring out, and the team battle, on what a game's sources describe. First written for Vampire Savior, then Street
 // Fighter Alpha 2.
 #include "battle.h"
+#include "session.h"
+
+#include "court.h"
 
 #include "spare.h"
 #include "state.h"
@@ -37,6 +40,7 @@ namespace {
     // The endless battle's stage: one stage; or the fighters drawn over a stage that another machine shows,
     // which can then change under them: by fading into another, or by scrolling on into the next
     enum { kStageOne, kStageShuffle, kStageScroll, kStageBehind }; // (the last: behind the fighters, and never changing by itself)
+    enum { kEndlessShuffle, kEndlessScroll, kEndlessOne };         // the endless battle's "Stages" choices
     // The ring out
     constexpr int kFallFor = 56;             // frames a fighter that is out is seen flung out and falling for
     // The way down: the winner jumps off the old stage, and at the top of its jump goes on in the next match (its
@@ -168,7 +172,7 @@ namespace {
         return (CameraLeft() + CameraRight()) / 2;
     }
 
-    enum class Kind : int32_t { None, Survival, Endless, RingOut, Team };
+    enum class Kind : int32_t { None, Survival, Endless, RingOut, Team, Court };
     enum class Phase : int32_t { Starting, Fighting, Decided, Over, Falling, Dropping };
     // (the menu's choices can be changed while the battle goes on: read each frame)
     int ShuffleAfter() {
@@ -339,6 +343,7 @@ namespace {
         g_dropBack.Clear();
         g_atChoice.clear();
         g_open = false;
+        court::End();
         Wanted() = MatchWanted();
         CameraAt() = CameraWanted();
         Fast(false);
@@ -368,13 +373,19 @@ namespace {
         }
         return d.rosterNumber(choice);
     }
-    // The endless battle's stage: its feature's choices are two ways of changing it, then the stages
+    // The stage the player has chosen on the menu's Stage page (session.h): 0 the game's choice, then the game's own
+    // from 1, then the other games'
+    int PlayersStage() {
+        return FeatureValue(session::kStageFeature);
+    }
+    // The endless battle's stage: the player's, where its feature says one stage (its other choices are two ways of
+    // changing it); else, and with the choice left to the game, any
     int ChosenStage() {
-        const int choice = FeatureValue("endless_stage");
-        if (choice >= 2 + d.stages) {
+        const int stage = FeatureValue("endless_stage") >= kEndlessOne ? PlayersStage() : 0;
+        if (stage > d.stages) {
             return 1; // (another game's stage, after the game's own: fought on its first, the other drawn behind: BattleStage)
         }
-        return choice >= 2 && choice < 2 + d.stages ? choice - 1 : static_cast<int>(Random() % static_cast<uint32_t>(d.stages)) + 1;
+        return stage >= 1 ? stage : static_cast<int>(Random() % static_cast<uint32_t>(d.stages)) + 1;
     }
     int AnyStage(int notThis) {
         for (;;) {
@@ -451,7 +462,7 @@ namespace {
         }
         g.computer[1] = TeamComputer();
         g.tag = d.tagIn && FeatureValue("team_style") == 0; // (the tag style first: what a team battle is unless chosen)
-        const int stage = FeatureValue("team_stage");
+        const int stage = PlayersStage();
         g.stage = stage >= 1 && stage <= d.stages ? stage : stage > d.stages ? 1 : AnyStage(0); // (BattleStage)
     }
     // A match decided (the round's result: 1 player 1 has won, 2 player 2, 3 both down): the one knocked down is
@@ -1053,18 +1064,36 @@ namespace {
         }
     }
 
+    uint32_t g_onlineSeed = 0; // (StartOnline's, for the Start it makes)
     void Start(Machine &machine, Kind kind) {
         d.endModes();
         End();
         SetFeature("training_mode", false);
         g.kind = kind;
         g.phase = Phase::Starting;
-        // (for tests, CPS2RECOMP_BATTLE_SEED=N: the same choices at random every time, so that a movie plays back)
+        // (for tests, CPS2RECOMP_BATTLE_SEED=N: the same choices at random every time, so that a movie plays back; online,
+        // the seed both sides were given: StartOnline)
         static const char *seed = getenv("CPS2RECOMP_BATTLE_SEED");
-        g.random = (seed ? static_cast<uint32_t>(strtoul(seed, nullptr, 10)) : std::random_device()()) | 1;
+        g.random = (g_onlineSeed ? g_onlineSeed : seed ? static_cast<uint32_t>(strtoul(seed, nullptr, 10)) : std::random_device()()) | 1;
+        g_onlineSeed = 0;
         g.coachRandom = g.random * 2654435761u | 1;
         if (kind == Kind::Team) {
             StartTeams();
+        } else if (kind == Kind::Court) {
+            // The fighters and the stage the menu's rows say (or at random); nobody the game's: the CPU's side is the
+            // court's own (court.cpp), as the game's computer knows nothing of a ball
+            g.characters[0] = ChosenCharacter("court_one");
+            g.characters[1] = ChosenCharacter("court_two");
+            if (g.characters[0] < 0) {
+                g.characters[0] = AnyCharacter(g.characters[1]);
+            }
+            if (g.characters[1] < 0) {
+                g.characters[1] = AnyCharacter(g.characters[0]);
+            }
+            g.computer[0] = g.computer[1] = false;
+            // (another game's stage, after the game's own: fought on its first, the other drawn behind: BattleStage)
+            const int stage = PlayersStage(); // (the menu's Stage page)
+            g.stage = stage >= 1 && stage <= d.stages ? stage : stage > d.stages ? 1 : AnyStage(0);
         } else if (kind != Kind::Endless) {
             g.characters[0] = -1; // (the player's choice)
             g.characters[1] = AnyCharacter();
@@ -1088,7 +1117,7 @@ namespace {
             g.computer[0] = g.computer[1] = true;
             g.stage = ChosenStage();
             const int choice = FeatureValue("endless_stage");
-            g.way = choice == 0 ? kStageShuffle : choice == 1 ? kStageScroll : kStageOne;
+            g.way = choice == kEndlessShuffle ? kStageShuffle : choice == kEndlessScroll ? kStageScroll : kStageOne;
             if (Layered()) {
                 g.back = g.stage;
                 g.backCamera = LeftEnd();
@@ -1117,6 +1146,16 @@ namespace {
     void StartRingOut(Machine &machine) {
         Start(machine, Kind::RingOut);
     }
+    void StartCourt(Machine &machine) {
+        Start(machine, Kind::Court);
+    }
+    // The court's game begun, at the round's start: the camera held in the middle of the stage, the court the picture
+    void BeginCourt() {
+        static constexpr int kPoints[3] = {3, 5, 10};
+        CameraAt().x = Arena();
+        court::Begin(Arena(), CameraY(), SeenLeft(), SeenRight(), kPoints[std::clamp(FeatureValue("court_points"), 0, 2)],
+                     FeatureValue("court_opponent") == 0, std::clamp(FeatureValue("court_level"), 0, 2));
+    }
     bool Chooses() {
         return (g.kind == Kind::Survival || g.kind == Kind::RingOut) && !g.computer[0]; // (the player chooses a character)
     }
@@ -1135,6 +1174,8 @@ namespace {
             }
         }
         Wanted().stage = g.stage;
+        // (the ring out's stages are its way down, drawn behind fighters whose own stage is the game's)
+        Wanted().gamesStage = g.kind == Kind::RingOut;
         Wanted().characters[0] = g.characters[0];
         Wanted().characters[1] = g.characters[1];
         Wanted().colours[0] = g.colours;
@@ -1197,6 +1238,9 @@ namespace {
                 if (Layered()) {
                     d.playSound(d.tuneOff); // (the music is the stage's, from its own machine)
                 }
+                if (g.kind == Kind::Court) {
+                    BeginCourt();
+                }
                 if (g.kind == Kind::RingOut) {
                     g.characters[1] = AnyCharacter(g.characters[1]); // (from here: who the next match is against)
                     Begin(g_next);
@@ -1241,6 +1285,10 @@ namespace {
         }
         if (g.kind == Kind::RingOut && g.phase == Phase::Fighting) {
             RingOutCoach(one, two);
+        }
+        if (g.kind == Kind::Court && g.phase == Phase::Fighting) {
+            CameraAt().x = Arena(); // (the whole court in the picture: the zoom closes in on the play)
+            court::BeforeFrame(machine, one, two);
         }
         if (g.kind == Kind::Team && g.tag && g.phase == Phase::Fighting) {
             TagBeforeFrame(one, two);
@@ -1677,6 +1725,7 @@ namespace {
             return;
         }
         std::vector<HudLine> lines;
+        std::vector<HudBox> boxes;
         int dark = 0;         // how far the fighters (or, with one stage, the whole picture) are faded, of 256
         bool layered = false; // the picture and sound have been put together already
         if (g.kind == Kind::RingOut && g.phase != Phase::Starting && g.phase != Phase::Over) {
@@ -1704,6 +1753,14 @@ namespace {
             } else if (g.phase == Phase::Dropping) {
                 g.since++;
                 HandOver();
+            }
+        } else if (g.kind == Kind::Court) {
+            // (no knock-out: the ball decides; a game won is shown, then the next begins where they stand)
+            if (g.phase == Phase::Fighting) {
+                court::Frame(machine, lines, boxes, CameraX(), CameraY(), SeenLeft(), SeenRight());
+                if (court::Over()) {
+                    court::Again();
+                }
             }
         } else if (g.phase == Phase::Fighting) {
             const uint8_t result = d.resultNow ? d.resultNow() : Ram8(d.result);
@@ -1838,7 +1895,7 @@ namespace {
             TeamLines(lines);
         }
         SetHud(std::move(lines));
-        SetBoxes({});
+        SetBoxes(std::move(boxes));
     }
 } // namespace
 
@@ -1846,24 +1903,19 @@ bool BattleMode() {
     return g.kind != Kind::None;
 }
 int BattleStage() {
-    if (g.kind == Kind::Endless && g.way == kStageOne) {
-        const int choice = FeatureValue("endless_stage");
-        return choice >= 2 + d.stages ? choice - 1 : 0;
-    }
-    if (g.kind == Kind::Team) {
-        const int choice = FeatureValue("team_stage");
-        return choice > d.stages ? choice : 0;
-    }
-    return 0;
+    // (the player's stage, the menu's Stage page: the survival's, the team battle's, the ball battle's, and the endless battle's one stage)
+    const bool players = g.kind == Kind::Survival || g.kind == Kind::Team || g.kind == Kind::Court || (g.kind == Kind::Endless && g.way == kStageOne);
+    const int choice = players ? PlayersStage() : 0;
+    return choice > d.stages ? choice : 0;
 }
 void EndBattle() {
     End();
 }
 bool BattleNoClock() {
-    return g.kind == Kind::Endless || g.kind == Kind::RingOut;
+    return g.kind == Kind::Endless || g.kind == Kind::RingOut || g.kind == Kind::Court;
 }
 bool BattleNoKnockOut() {
-    return g.kind == Kind::RingOut;
+    return g.kind == Kind::RingOut || g.kind == Kind::Court;
 }
 bool TeamBattle() {
     return g.kind == Kind::Team;
@@ -1933,7 +1985,19 @@ void BattleFrame(Machine &machine) {
         const bool fighting = (g.kind == Kind::Endless || g.kind == Kind::RingOut) && g.phase != Phase::Starting;
         const bool layered = fighting && Layered();
         machine.video.hideObject = layered ? d.notTheFighters : fighting ? d.thePanel : nullptr;
+        if (g.kind == Kind::Court && g.phase != Phase::Starting && court::Hidden()) {
+            machine.video.hideObject = court::Hidden(); // (the court's: the health bars and the clock, the gauge kept)
+        }
         machine.video.layerMask = layered ? 1 | d.panelLayers : 0xF;
+        if (g.kind == Kind::Court && g.phase != Phase::Starting) {
+            machine.video.layerMask &= ~court::HiddenLayers(); // (the court's: a panel that is a scroll screen)
+        }
+        // (the court's: the panel's bars, names and clock taken out of the object list; another's change left alone)
+        if (g.kind == Kind::Court && g.phase != Phase::Starting && court::HidesPanel()) {
+            machine.video.objectsTaken = court::TakeObjects;
+        } else if (machine.video.objectsTaken == court::TakeObjects) {
+            machine.video.objectsTaken = nullptr;
+        }
         machine.video.markObjects = layered;
         machine.video.markLayers = layered ? d.panelLayers : 0;
     }
@@ -1942,6 +2006,7 @@ void BattleFrame(Machine &machine) {
 void BattleState(Archive &ar) {
     ar.Mark(0x42415454);
     ar.Pod(g);
+    court::State(ar);
     ar.Vec(g_next.state);
     ar.Pod(g_next.ready);
     ar.Pod(g_next.frames);
@@ -2065,10 +2130,56 @@ int battle::RoundsToWin() {
     return d.roundsToWin;
 }
 
+bool battle::OnlineSets() {
+    return g_described && d.onlineSets;
+}
+
+bool battle::StartOnline(Machine &machine, int mode, uint32_t seed) {
+    if (!g_described) {
+        return false;
+    }
+    if (mode == 0) {
+        End();
+        machine.Reset();
+        return true;
+    }
+    if (mode == 1 && !court::Described()) {
+        return false;
+    }
+    // (each side a person; the game's own stages only, as another game's is drawn by a machine of that game's)
+    if (PlayersStage() > d.stages) {
+        SetFeatureForNow(session::kStageFeature, 0);
+    }
+    SetFeatureForNow(mode == 1 ? "court_opponent" : "team_opponent", 1);
+    g_onlineSeed = seed | 1;
+    Start(machine, mode == 1 ? Kind::Court : Kind::Team);
+    return true;
+}
+
+bool battle::TwoPeopleNow() {
+    if (!OnlineSets()) {
+        return false;
+    }
+    for (int side = 0; side < 2; ++side) {
+        const uint32_t player = Player(side);
+        if (!Ram8(player + d.active) || (Ram8(player + d.computer) != 0) != d.computerIsZero) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void battle::Register(const Description &description) {
     d = description;
     g_described = true;
     Game &game = TheGame();
+    if (d.onlineSets) {
+        game.features.push_back({"online_set", "Online", "Set format",
+                                 "The host chooses Casual, first to 5 games or first to 10 games before connecting. "
+                                 "Both players see the score. After both confirm the winner, the result is shown briefly, "
+                                 "then both return to the launcher. Offline play is unchanged.",
+                                 0, {"Casual", "FT5", "FT10"}});
+    }
     // (the zoom that keeps the panel where it is: port/zoom.h)
     game.panel = d.thePanel;
     game.panelLayers = d.panelLayers;
@@ -2107,16 +2218,29 @@ void battle::Register(const Description &description) {
         }
         game.features.push_back({"ringout_best", kRingOut, "Best", "The most ring outs in one go. (Left puts it back.)", 0, choices});
     }
+    if (court::Described()) {
+        court::RegisterPage(kModes, StartCourt, d.fighterChoices); // (its stage: the menu's Stage page)
+        game.focusAlso = court::Focus;
+        // (the court's whole stage, wider than the wide picture, through its own camera: Port::Framed)
+        // (16:9 with the widescreen setting on, as recommended; 4:3 without)
+        game.framedColumns = [] {
+            return g.kind == Kind::Court && court::On() && d.wideSide && d.wideSide() > 0
+                       ? Video::kWidth + (FeatureOn("widescreen") ? 2 * Video::kWideSide : 0)
+                       : 0;
+        };
+        game.framedFollows = [] { return FeatureValue("court_camera") == 1; };
+    }
     game.commands.push_back({"endless_start", kEndless, "Start",
                              "Two fighters played by the game: no bars, no clock, and the one knocked down is replaced. Press "
                              "anything to take a fighter over; ten idle seconds give it back.",
                              StartEndless});
     game.features.push_back({"endless_one", kEndless, "Fighter 1", "Who is on player 1's side: someone new each time, or always the same.", 0, d.fighterChoices});
     game.features.push_back({"endless_two", kEndless, "Fighter 2", "Who is on player 2's side: someone new each time, or always the same.", 0, d.fighterChoices});
-    game.features.push_back({"endless_stage", kEndless, "Stage",
+    game.features.push_back({"endless_stage", kEndless, "Stages",
                              "Where they fight. Shuffle: a stage that fades into another every so often. Scroll: the stages "
-                             "go by, one after another, and the fighters are carried along. Or one stage.",
-                             kFeatureFavourites, d.stageChoices});
+                             "go by, one after another, and the fighters are carried along. One stage: the one chosen on the "
+                             "menu's Stage page (with the game's choice there, another for each fight).",
+                             0, {"Shuffle", "Scroll", "One stage"}});
     game.features.push_back({"endless_shuffle", kEndless, "Shuffle every",
                              "Shuffle: how long they fight on a stage before it fades into another.", 0,
                              {"1 minute", "2 minutes", "3 minutes", "5 minutes", "10 minutes"}});
@@ -2153,12 +2277,6 @@ void battle::Register(const Description &description) {
                                  "How well the CPU's team fights, 1 (easiest) to 8 (hardest), or as the board is set (the Board page).",
                                  0, {"As the board is set", "1 (easiest)", "2", "3", "4", "5", "6", "7", "8 (hardest)"}});
     }
-    {
-        // (the stages: the choices after the endless battle's two ways of changing them)
-        static std::vector<const char *> stages = {"Random"};
-        stages.insert(stages.end(), d.stageChoices.begin() + std::min<size_t>(2, d.stageChoices.size()), d.stageChoices.end());
-        game.features.push_back({"team_stage", kTeam, "Stage", "Where the teams fight, from the first fight to the last.", kFeatureFavourites, stages});
-    }
     static const char *const kOrder[kTeamMost] = {"first", "second", "third"};
     static std::string titles[2][kTeamMost], helps[2][kTeamMost];
     for (int side = 0; side < 2; side++) {
@@ -2169,9 +2287,9 @@ void battle::Register(const Description &description) {
             game.features.push_back({kTeamRows[side][n], kTeam, titles[side][n].c_str(), helps[side][n].c_str(), 0, d.fighterChoices});
         }
     }
-    // (the fighters' rows and the stage are this game's own, by its roster and its stages: the collection's launcher
+    // (the fighters' rows are this game's own, by its roster: the collection's launcher
     // is not to set another game's from them)
-    OwnFeatures({"team_1_1", "team_1_2", "team_1_3", "team_2_1", "team_2_2", "team_2_3", "team_stage"});
+    OwnFeatures({"team_1_1", "team_1_2", "team_1_3", "team_2_1", "team_2_2", "team_2_3"});
 }
 
 void battle::RegisterTeamTag(float labelY) {

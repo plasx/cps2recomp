@@ -22,6 +22,7 @@
 #include "../runtime/guest.h"
 #include "port.h"
 #include "../recomp-common/folders.h"
+#include "../recomp-common/menu.h"
 #include "../recomp-common/proxy.h"
 #include "../recomp-common/settings.h"
 #include "../recomp-common/text.h"
@@ -34,6 +35,7 @@
 #include <chrono>
 #include <cmath>
 #include <map>
+#include <random>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -48,6 +50,26 @@
 using namespace cps2recomp;
 
 namespace port {
+
+namespace {
+    // The modes played online (battle::StartOnline), by number, and their pages' names
+    constexpr const char *kOnlineModes[] = {"Versus", "Ball battle", "Tag team battle"};
+    const Feature *FindFeature(const std::string &name) {
+        for (const Feature &feature : TheGame().features) {
+            if (name == feature.name) {
+                return &feature;
+            }
+        }
+        return nullptr;
+    }
+    bool OnlineModeHere(int mode) {
+        return mode == 0 || FindFeature(mode == 1 ? "court_points" : "team_size") != nullptr;
+    }
+    // A player's own fighters' rows on the modes' pages (player 1's the host's, player 2's the other side's)
+    bool OwnRow(int player, const std::string &row) {
+        return player == 0 ? row == "court_one" || row.rfind("team_1_", 0) == 0 : row == "court_two" || row.rfind("team_2_", 0) == 0;
+    }
+} // namespace
 
 bool Movie::Load(const std::string &path) {
     FILE *f = fopen(path.c_str(), "r");
@@ -95,11 +117,11 @@ namespace {
 } // namespace
 
 namespace {
-    constexpr uint32_t kStateVersion = 11; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
+    constexpr uint32_t kStateVersion = 12; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
                                           // 8: widescreen's camera a frame ago; 9: a guest board's, runtime/guest.h;
-                                          // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: the order Marvel vs.
-                                          // Capcom's sides start in, games/mvsc/src/tag.cpp, and Cross Fever's count of
-                                          // steps for the gauge, crossfever.cpp)
+                                          // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: live tag swaps (upstream),
+                                          // or MVC starting order/Cross Fever clock (the four-player preview);
+                                          // 12: both branches combined; legacy MVC 11 parts are identified by their marks)
 
     // (a path is UTF-8 text: by its wide name on Windows, where a folder with an accent is not in the system's code page)
     FILE *OpenFile(const std::string &path, const wchar_t *wideMode, const char *mode) {
@@ -498,6 +520,11 @@ bool ReadDeclaredFeatures(std::string& error) {
 
 // Every game's features that come from the port itself (after the game's own: RegisterGame), for the game and
 // for the list the launcher asks for (--list-features)
+// The board's timing: the port's arcade_timing feature, or what the game's sources say (Game::boardTiming)
+bool BoardTimingWanted() {
+    return TheGame().boardTiming ? TheGame().boardTiming() : FeatureOn("arcade_timing");
+}
+
 void RegisterPortFeatures() {
     // (the board's settings from game.cfg: ReadBoardOptions)
     if (!g_boardOptions.empty()) {
@@ -525,15 +552,17 @@ void RegisterPortFeatures() {
                                   "on the board (input lag taken away). The game runs as it does without it; it takes two or three "
                                   "times the processor. Off by itself in the game's own modes beyond fights and training.",
                                   0, {"Off", "1 frame", "2 frames"}});
-    // (arcade_timing: machine.h, SetBoardTiming; docs/TIMING.md)
-    TheGame().features.push_back({"arcade_timing", "Game", "Arcade timing",
-                                  "The processor runs as on the arcade board, waiting for its memory and giving the bus to the "
-                                  "video chip, so the game slows down where and as much as the board does (big supers, busy "
-                                  "screens). Off: it has every clock, and the game seldom slows. Checked frame by frame against "
-                                  "a cycle-exact model of the board. In training mode, the game's other modes, widescreen and "
-                                  "with cheats on, the port's own code for some routines runs, and the timing there is close "
-                                  "but not exact.",
-                                  0});
+    // (arcade_timing: machine.h, SetBoardTiming; docs/TIMING.md. Not for a game whose sources decide it: Game::boardTiming)
+    if (!TheGame().boardTiming) {
+        TheGame().features.push_back({"arcade_timing", "Game", "Arcade timing",
+                                      "The processor runs as on the arcade board, waiting for its memory and giving the bus to the "
+                                      "video chip, so the game slows down where and as much as the board does (big supers, busy "
+                                      "screens). Off: it has every clock, and the game seldom slows. Checked frame by frame against "
+                                      "a cycle-exact model of the board. In training mode, the game's other modes, widescreen and "
+                                      "with cheats on, the port's own code for some routines runs, and the timing there is close "
+                                      "but not exact.",
+                                      0});
+    }
     // (rapid_fire: Port::RapidFire)
     TheGame().features.push_back({"rapid_fire", "Game", "Rapid fire",
                                   "A button held down is pressed again and again (fifteen times a second), for the first button or "
@@ -548,6 +577,13 @@ void RegisterPortFeatures() {
                                   "4:3: as the arcade's monitor showed it. Square pixels: each pixel as wide as it is tall, "
                                   "a little wider than 4:3. Fill: the whole window or screen, stretched to it.",
                                   0, {"4:3", "Square pixels", "Fill"}});
+    // (display_turn: a vertical game only, Turned)
+    if (TheGame().vertical) {
+        TheGame().features.push_back({"display_turn", "Display", "Picture turned",
+                                      "The game was made for a monitor stood on end. Upright: its picture stood up in the window, as "
+                                      "the cabinet showed it. On its side: as the board draws it, for a screen turned on its side.",
+                                      0, {"Upright", "On its side"}});
+    }
     // (display_shader: Port::ShaderPreset, shading.h; the presets are in shaders/ beside the program, kShaderPresets.
     // librashader is in each release, tools/librashader.sh; on Android the presets are unpacked by GameActivity.java)
     TheGame().features.push_back({"display_shader", "Display", "Shader",
@@ -639,6 +675,20 @@ Scaling DisplayScaling() {
 }
 Shape DisplayShape() {
     return static_cast<Shape>(std::clamp(FeatureValue("display_shape"), 0, 2));
+}
+bool Turned() {
+    return TheGame().vertical && FeatureValue("display_turn") == 0;
+}
+void TurnPicture(const uint32_t *pixels, int across, std::vector<uint32_t> &out) {
+    // (a quarter to the left: the picture's right edge becomes its top)
+    const int rows = Video::kHeight;
+    out.resize(static_cast<size_t>(across) * rows);
+    for (int y = 0; y < rows; y++) {
+        const uint32_t *from = pixels + static_cast<size_t>(y) * across;
+        for (int x = 0; x < across; x++) {
+            out[static_cast<size_t>(across - 1 - x) * rows + y] = from[x];
+        }
+    }
 }
 int WindowSize() {
     static const int kTimes[] = {3, 2, 4, 5, 6};
@@ -780,7 +830,7 @@ bool Port::Init(std::string &error) {
 #endif
     machine = std::make_unique<Machine>(roms);
     machine->cpuSpeed = opt.cpuSpeed > 0 ? opt.cpuSpeed : 1;
-    SetRam(machine->ram.data());
+    SetRam(machine->ram.data(), machine->videoRam.data());
     SetProgram(roms.program.data(), static_cast<uint32_t>(roms.program.size()));
     SetProgramOpcodes(roms.opcodes.data());
 #ifdef GAME_EXTRA_SET
@@ -889,6 +939,7 @@ bool Port::Init(std::string &error) {
         };
         machine->nativeVideo.frameUser = &gpuPicture;
         gpuPicture.guestBehind = &machine->guestBehind;
+        gpuPicture.guestShift = &machine->guestShift;
 #ifdef GAME_GUEST_TABLE
         // (the guests' boards' frames too, for their stages drawn under the game's objects)
         static const GuestGame kDrawnGuests[] = GAME_GUEST_TABLE;
@@ -925,6 +976,7 @@ bool Port::Init(std::string &error) {
         }
         g_gpuPicture = &checkPicture;
         checkPicture.guestBehind = &machine->guestBehind;
+        checkPicture.guestShift = &machine->guestShift;
 #ifdef GAME_GUEST_TABLE
         static const GuestGame kCheckedGpuGuests[] = GAME_GUEST_TABLE;
         for (const GuestGame &guest : kCheckedGpuGuests) {
@@ -975,10 +1027,11 @@ bool Port::Init(std::string &error) {
     autoState = opt.autoSeed * 0x9E3779B97F4A7C15ull + 0x1234567ull;
     rollbackTest.random = opt.rollbackTest * 0x9E3779B97F4A7C15ull + 0x89ABCDEull;
     if (TheGame().songCount) {
-        machine->soundtrack.FindMusic(roms.soundProgram, TheGame().songTable, TheGame().songCount, TheGame().musicBelow);
+        machine->soundtrack.FindMusic(roms.soundProgram, TheGame().songTable, TheGame().songCount, TheGame().musicBelow,
+                                            TheGame().songAddresses, TheGame().songEntry);
     }
     SoundtrackFollow();
-    machine->SetBoardTiming(FeatureOn("arcade_timing"));
+    machine->SetBoardTiming(BoardTimingWanted());
     return true;
 }
 
@@ -1385,9 +1438,18 @@ bool Port::Tick() {
         // sources take it somewhere); no stopping, slowing or speeding up
         const bool ready = net->Ready(frame);
         HearChat();
+        HearEvents();
         if (!opt.netTyping.empty()) {
             typing = true;
             typed = opt.netTyping;
+        }
+        for (auto it = opt.netCommands.begin(); it != opt.netCommands.end();) {
+            if (frame >= it->first) {
+                net->Command(it->second);
+                it = opt.netCommands.erase(it);
+            } else {
+                ++it;
+            }
         }
         if (!opt.netSay.empty() && frame >= opt.netSayAt) {
             typed = opt.netSay;
@@ -1397,8 +1459,10 @@ bool Port::Tick() {
         if (!ready) {
             if (!net->ended.empty()) {
                 // (the other side gone: a window waits for them again; the host's leaving ends the joining side's)
-                const bool again = !opt.headless && (net->Hosting() ? net->left || net->lost : net->lost);
-                if (hostedFromMenu) {
+                const bool again = !opt.headless && !net->Watching() && (net->Hosting() ? net->left || net->lost : net->lost);
+                if (net->SetFinished()) {
+                    quit = true;
+                } else if (hostedFromMenu) {
                     BackToSolo(again); // (the other side gone: still hosted, the player's own game again)
                 } else if (again) {
                     Again(net->ended);
@@ -1458,19 +1522,30 @@ bool Port::Tick() {
     return true;
 }
 
-void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, bool over, uint32_t base) const {
+void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, bool over, uint32_t base, bool boxes) const {
     const int across = ShownWidth();
     if (over) {
         pixels.assign(static_cast<size_t>(across) * Video::kHeight, base);
     } else {
         pixels.assign(machine->Picture(), machine->Picture() + across * Video::kHeight);
     }
-    DrawHud(pixels.data(), across, Video::kHeight, panels);
+    // (a vertical game's picture turned upright, port::Turned: its boxes drawn on the board's picture, as they belong to the
+    // game's, and the text upright on the picture turned, which is turned back at the end, to be turned again as it is shown)
+    const bool turned = port::Turned();
+    std::vector<uint32_t> upright;
+    const unsigned boxParts = boxes ? +port::kHudBoxes : 0u;
+    if (turned) {
+        DrawHud(pixels.data(), across, Video::kHeight, nullptr, boxParts);
+        port::TurnPicture(pixels.data(), across, upright);
+    }
+    uint32_t *const px = turned ? upright.data() : pixels.data();
+    const int W = turned ? +Video::kHeight : across, H = turned ? across : +Video::kHeight;
+    DrawHud(px, W, H, panels, turned ? +port::kHudText : boxParts | port::kHudText);
     // A line at the bottom, in the middle (`up` lines higher)
     auto status = [&](const char *text, int up) {
-        const recomp::text::Canvas canvas{pixels.data(), across, Video::kHeight};
+        const recomp::text::Canvas canvas{px, W, H};
         const float width = recomp::text::TextWidth(text, 1);
-        const float x = (across - width) / 2, y = static_cast<float>(Video::kHeight - 11 - up);
+        const float x = (W - width) / 2, y = static_cast<float>(H - 11 - up);
         canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, 220});
         canvas.Text(x, y, 1, 0, {255, 255, 255, 255}, text);
         if (panels) {
@@ -1521,8 +1596,14 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         if (*text) {
             status(text, said++ * 14);
         }
+        if (net->Watching()) status("SPECTATING", said++ * 14);
         if (!cameIn) {
             status("PRESS START TO JOIN", said++ * 14);
+        }
+        if (net->Set().Winner() >= 0) {
+            const std::string result = std::string(tag::Chosen() == tag::kOff ? "PLAYER " : "TEAM ") + std::to_string(net->Set().Winner() + 1) + " WINS THE FT" +
+                                       std::to_string(net->Set().Target()) + " SET";
+            status(result.c_str(), said++ * 14);
         }
     }
     // (--net-arcade: the host playing while it waits; the wait, and the match's code to give, at the bottom)
@@ -1555,20 +1636,54 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     // (online: each player's name under their side's life bar, and under it a win streak of two or more)
     if (net && !connecting) {
-        const recomp::text::Canvas canvas{pixels.data(), across, Video::kHeight};
+        const recomp::text::Canvas canvas{px, W, H};
         auto under = [&](int side, float y, const std::string &text, recomp::text::Color colour) {
             const float width = recomp::text::TextWidth(text.c_str(), 1);
-            const float x = side == 0 ? 10.0f : across - 10.0f - width;
+            const float x = side == 0 ? 10.0f : W - 10.0f - width;
             canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, 220});
             canvas.Text(x, y, 1, 0, colour, text.c_str());
             if (panels) {
                 panels->push_back({static_cast<int>(x) - 3, static_cast<int>(y) - 2, static_cast<int>(width) + 7, 12});
             }
         };
-        // (with tag team, each person of a side by their number, over where the label of the one on point would be:
-        // the one on point brighter; otherwise the side's player's name)
+        // Each teammate keeps their player number; first-to scores remain team scores.
         const bool teams = tag::Chosen() != tag::kOff;
-        for (int side = 0; side < 2; side++) {
+        if (net->Set().Target()) {
+            // Keep the score centred even when the players' names have different lengths.
+            constexpr float size = 1;
+            // Whole font dots stay sharp; compact padding keeps the strip clear of the life bars.
+            auto smallText = [&](float x, const std::string &text, recomp::text::Color colour) {
+                canvas.Text(std::floor(x), 2, size, 0, colour, text.c_str());
+            };
+            const std::string left = std::to_string(net->Set().Score(0));
+            const std::string format = "FT" + std::to_string(net->Set().Target());
+            const std::string right = std::to_string(net->Set().Score(1));
+            const float leftWidth = recomp::text::TextWidth(left.c_str(), size);
+            const float formatWidth = recomp::text::TextWidth(format.c_str(), size);
+            const float rightWidth = recomp::text::TextWidth(right.c_str(), size);
+            const float centre = (across - formatWidth) / 2.0f;
+            const float leftAt = centre - 6 - leftWidth;
+            const float rightAt = centre + formatWidth + 6;
+            canvas.Fill(0, 0, across, 11, {20, 22, 30, 220});
+            smallText(leftAt, left, {0, 220, 220, 255});
+            smallText(centre, format, {255, 210, 80, 255});
+            smallText(rightAt, right, {0, 220, 220, 255});
+            if (!teams && !FeatureOn("online_hide_names")) {
+                for (int side = 0; side < 2; ++side) {
+                    std::string name = net->Name(side);
+                    if (name.empty()) {
+                        name = "Player " + std::to_string(side + 1);
+                    }
+                    const float width = recomp::text::TextWidth(name.c_str(), size);
+                    const float x = side == 0 ? leftAt - 9 - width : rightAt + rightWidth + 9;
+                    smallText(x, name, {255, 255, 255, 255});
+                }
+            }
+            if (panels) {
+                panels->push_back({0, 0, across, 11});
+            }
+        }
+        for (int side = 0; side < 2 && (!net->Set().Target() || teams); side++) {
             float y = 38.0f;
             std::vector<std::pair<std::string, bool>> lines; // (each line, and whether it is drawn bright)
             bool named = false;
@@ -1594,7 +1709,7 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             }
         }
         // The chat: its lines at the left, above the super gauges, the newest lowest, and the line being typed under them
-        float y = Video::kHeight - 44.0f;
+        float y = H - 44.0f;
         auto line = [&](const std::string &text, recomp::text::Color colour) {
             const float width = recomp::text::TextWidth(text.c_str(), 1);
             canvas.Fill(7, y - 2, width + 6, 12, {20, 22, 30, 200});
@@ -1622,10 +1737,47 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     // (online: Esc's question, in the middle, over the game, which goes on; the port's own, not the readout, which the
     // game's sources set every frame. --net-arcade's wait: whether to stop hosting, the game stopped meanwhile)
-    if (net && leaving) {
-        const recomp::text::Canvas canvas{pixels.data(), across, Video::kHeight};
+    if (net && leaving && !OnlineRows().empty()) {
+        // (a match: the rows, the chosen one marked; Left and Right change it, Confirm starts the mode or leaves)
+        const recomp::text::Canvas canvas{px, W, H};
+        const std::vector<OnlineRow> rows = OnlineRows();
+        std::vector<std::pair<std::string, recomp::text::Color>> lines;
+        for (int n = 0; n < static_cast<int>(rows.size()); n++) {
+            const OnlineRow &row = rows[n];
+            std::string text;
+            if (row.kind == 0) {
+                text = std::string("Play: < ") + kOnlineModes[std::clamp(onlineMode, 0, 2)] + " >  (Confirm starts it)";
+            } else if (row.kind == 1) {
+                const Feature *feature = FindFeature(row.feature);
+                const auto it = onlinePicks.find(row.feature);
+                const int value = it != onlinePicks.end() ? it->second : FeatureValue(row.feature.c_str());
+                const char *name = feature && value >= 0 && value < static_cast<int>(feature->choices.size()) ? feature->choices[value] : "?";
+                text = row.title + ": < " + name + " >";
+            } else {
+                text = row.title;
+            }
+            const bool on = n == std::clamp(onlineRow, 0, static_cast<int>(rows.size()) - 1);
+            lines.push_back({(on ? "> " : "  ") + text, on ? recomp::text::Color{255, 210, 80, 255} : recomp::text::Color{255, 255, 255, 255}});
+        }
+        lines.push_back({"Up/Down: row  Left/Right: change  Confirm  Back: close", {170, 170, 170, 255}});
+        float width = 0;
+        for (const auto &line : lines) {
+            width = std::max(width, recomp::text::TextWidth(line.first.c_str(), 1));
+        }
+        const float x = (W - width) / 2;
+        float y = H / 2.0f - 11.0f * static_cast<float>(lines.size());
+        canvas.Fill(x - 8, y - 6, width + 16, 22.0f * static_cast<float>(lines.size()) + 4, {20, 22, 30, 235});
+        if (panels) {
+            panels->push_back({static_cast<int>(x) - 8, static_cast<int>(y) - 6, static_cast<int>(width) + 17, 22 * static_cast<int>(lines.size()) + 4});
+        }
+        for (const auto &line : lines) {
+            canvas.Text(x, y, 1, 0, line.second, line.first.c_str());
+            y += 22;
+        }
+    } else if (net && leaving) {
+        const recomp::text::Canvas canvas{px, W, H};
         const bool hosting = connecting;
-        const char *question = hostedFromMenu ? "Leave the match?" : hosting ? "Stop hosting and quit?" : "Leave the match?";
+        const char *question = net->Watching() ? "Stop watching?" : hostedFromMenu ? "Leave the match?" : hosting ? "Stop hosting and quit?" : "Leave the match?";
         const char *confirm = hostedFromMenu ? "Confirm (A, Enter): play alone" : hosting ? "Confirm (A, Enter): quit" : "Confirm (A, Enter): leave";
         const struct {
             const char *text;
@@ -1633,16 +1785,24 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         } lines[] = {{question, {255, 255, 255, 255}},
                      {confirm, {255, 130, 120, 255}},
                      {"Back (B, Backspace, Esc): stay", {255, 255, 255, 255}}};
-        float y = Video::kHeight / 2.0f - 30;
+        float y = H / 2.0f - 30;
         for (const auto &line : lines) {
             const float width = recomp::text::TextWidth(line.text, 1);
-            const float x = (across - width) / 2;
+            const float x = (W - width) / 2;
             canvas.Fill(x - 6, y - 4, width + 12, 16, {20, 22, 30, 235});
             canvas.Text(x, y, 1, 0, line.colour, line.text);
             if (panels) {
                 panels->push_back({static_cast<int>(x) - 6, static_cast<int>(y) - 4, static_cast<int>(width) + 13, 16});
             }
             y += 22;
+        }
+    }
+    if (turned) {
+        // (back as the board draws it: a quarter to the right)
+        for (int y = 0; y < Video::kHeight; y++) {
+            for (int x = 0; x < across; x++) {
+                pixels[static_cast<size_t>(y) * across + x] = upright[static_cast<size_t>(across - 1 - x) * Video::kHeight + y];
+            }
         }
     }
 }
@@ -1658,8 +1818,134 @@ void Port::Readouts(std::vector<uint32_t> &rgba, std::vector<SDL_Rect> *panels) 
     }
 }
 
+int Port::FramedColumns() const {
+    const int columns = TheGame().framedColumns && !port::Turned() ? TheGame().framedColumns() : 0;
+    return columns > 0 && columns < ShownWidth() && machine->Unpanelled() ? columns : 0;
+}
+
+void Port::Framed(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
+    const int across = ShownWidth(), columns = FramedColumns();
+    constexpr int kBy = 3, kLines = Video::kHeight;
+    const int outWidth = columns * kBy, outHeight = kLines * kBy;
+    zoomed.width = outWidth;
+    zoomed.height = outHeight;
+    zoomed.columns = columns;
+    // The camera: as close as shows both fighters and what else is kept in (a ball), to kFramedMost of the shape; out to
+    // all of the picture's width (above it then, black); eased
+    constexpr float kFramedMost = 1.3f, kEase = 0.06f;
+    constexpr float kRoomAcross = 0.62f, kRoomTop = 8.0f, kRoomFeet = 14.0f;
+    const float least = static_cast<float>(columns) / static_cast<float>(across);
+    Game &game = TheGame();
+    float wantedSize = least, wantedX = across / 2.0f, wantedY = kLines / 2.0f;
+    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+    if (game.framedFollows && game.framedFollows() && game.focus && game.focus(0, x0, y0) && game.focus(1, x1, y1)) {
+        const float roomAcross = game.focusTall * kRoomAcross;
+        float left = std::min(x0, x1) - roomAcross, right = std::max(x0, x1) + roomAcross;
+        float top = std::min(y0, y1) - (game.focusTall - game.focusLift) - kRoomTop, bottom = std::max(y0, y1) + game.focusLift + kRoomFeet;
+        int ax = 0, ay = 0, reach = 0;
+        if (game.focusAlso && game.focusAlso(ax, ay, reach)) {
+            left = std::min(left, static_cast<float>(ax - reach));
+            right = std::max(right, static_cast<float>(ax + reach));
+            top = std::min(top, static_cast<float>(ay - reach));
+            bottom = std::max(bottom, static_cast<float>(ay + reach));
+        }
+        wantedSize = std::clamp(std::min(columns / (right - left), kLines / (bottom - top)), least, kFramedMost);
+        wantedX = (left + right) / 2;
+        wantedY = (top + bottom) / 2;
+    }
+    FrameCamera &cam = frameCamera;
+    if (!cam.settled) {
+        cam = {wantedX, wantedY, wantedSize, true};
+    }
+    cam.size += (wantedSize - cam.size) * kEase;
+    cam.x += (wantedX - cam.x) * kEase;
+    cam.y += (wantedY - cam.y) * kEase;
+    const float viewWidth = columns / cam.size, viewHeight = kLines / cam.size;
+    float viewX = viewWidth >= across ? (across - viewWidth) / 2 : std::clamp(cam.x - viewWidth / 2, 0.0f, across - viewWidth);
+    // (taller than the picture: the black above, where the panel goes, and as far as there is room the picture raised clear
+    // of the panel's bottom lines (the gauges), which would else cover the fighters' feet)
+    constexpr float kBelow = 26.0f;
+    float viewY = viewHeight >= kLines ? kLines - viewHeight + std::min(kBelow * viewHeight / kLines, viewHeight - kLines)
+                                       : std::clamp(cam.y - viewHeight / 2, 0.0f, kLines - viewHeight);
+
+    // The game's picture without its panel, with the boxes the sources draw over the fight (the ball), through the view:
+    // each pixel of the frame the nearest of the picture's (tables of which column and row, made once a frame: a frame
+    // every sixtieth of a second on a handheld's processor too)
+    std::vector<uint32_t> &fight = framedFight;
+    fight.assign(machine->Unpanelled(), machine->Unpanelled() + static_cast<size_t>(across) * kLines);
+    port::DrawHud(fight.data(), across, kLines, nullptr, port::kHudBoxes);
+    pixels.resize(static_cast<size_t>(outWidth) * outHeight);
+    std::vector<int> &columnOf = framedColumnOf;
+    columnOf.resize(static_cast<size_t>(outWidth));
+    for (int x = 0; x < outWidth; x++) {
+        const int column = static_cast<int>(std::floor(viewX + (x + 0.5f) * viewWidth / outWidth));
+        columnOf[static_cast<size_t>(x)] = column >= 0 && column < across ? column : -1;
+    }
+    for (int y = 0; y < outHeight; y++) {
+        const int row = static_cast<int>(std::floor(viewY + (y + 0.5f) * viewHeight / outHeight));
+        uint32_t *line = &pixels[static_cast<size_t>(y) * outWidth];
+        if (row < 0 || row >= kLines) {
+            std::fill(line, line + outWidth, 0xFF000000u);
+            continue;
+        }
+        const uint32_t *from = &fight[static_cast<size_t>(row) * across];
+        for (int x = 0; x < outWidth; x++) {
+            const int column = columnOf[static_cast<size_t>(x)];
+            line[x] = column < 0 ? 0xFF000000u : from[column] | 0xFF000000u;
+        }
+    }
+    // Over it, as a picture of the shape's columns shows them: the game's panel (in the middle of the picture, as the
+    // board's own), and the readout's text, each of their pixels kBy x kBy of the frame's
+    std::vector<uint32_t> &laid = framedLaid;
+    laid.assign(static_cast<size_t>(columns) * kLines, 0);
+    const uint8_t *panel = machine->PanelPixels();
+    const uint32_t *picture = machine->Picture();
+    const int from = (across - columns) / 2;
+    if (panel) {
+        for (int y = 0; y < kLines; y++) {
+            for (int x = 0; x < columns; x++) {
+                const size_t n = static_cast<size_t>(y) * across + x + from;
+                if (panel[n]) {
+                    laid[static_cast<size_t>(y) * columns + x] = picture[n] | 0xFF000000u;
+                }
+            }
+        }
+    }
+    port::DrawHud(laid.data(), columns, kLines, nullptr, port::kHudText);
+    for (int y = 0; y < kLines; y++) {
+        const uint32_t *row = &laid[static_cast<size_t>(y) * columns];
+        for (int x = 0; x < columns; x++) {
+            if (const uint32_t over = row[x]; over >> 24) {
+                for (int dy = 0; dy < kBy; dy++) {
+                    std::fill_n(&pixels[static_cast<size_t>(y * kBy + dy) * outWidth + static_cast<size_t>(x * kBy)], kBy, over);
+                }
+            }
+        }
+    }
+}
+
 bool Port::Windowed(std::vector<uint32_t> &pixels, Zoomed &zoomed, bool readouts) {
+    // (a mode that frames a picture wider than it is shown: its own camera, not the zoom)
+    if (FramedColumns() && !readouts) {
+        zoomed.keep.clear();
+        zoomed.panel = false;
+        Framed(pixels, zoomed);
+        return false;
+    }
+    frameCamera.settled = false;
     const int across = ShownWidth();
+    // A mode that wants the zoom while it runs (Game::zoomWanted): its choice, and the player's put back after
+    {
+        static int wantedBefore = 0, choiceBefore = 0;
+        const int wanted = TheGame().zoomWanted && Zoom::Possible() ? TheGame().zoomWanted() : 0;
+        if (wanted != wantedBefore) {
+            if (wantedBefore == 0) {
+                choiceBefore = zoom.Choice();
+            }
+            zoom.Choose(wanted ? wanted : choiceBefore);
+            wantedBefore = wanted;
+        }
+    }
     zoom.Follow(across, Video::kHeight);
     const Menu::Rate rate = menu.GameRate();
     if (rate.frames != saidRate.frames || rate.ticks != saidRate.ticks) {
@@ -1686,13 +1972,18 @@ bool Port::Windowed(std::vector<uint32_t> &pixels, Zoomed &zoomed, bool readouts
         return true;
     }
     // (the game's own picture above, the one with the readout below)
-    Shown(pixels, &zoomed.keep);
-    const uint32_t *above = machine->Picture();
     // (not where the game's sources put the picture together from other frames: the last frame run is not the one shown)
-    if (zoom.KeepsPanel() && machine->Unpanelled() && machine->PictureWidth() == across && !cps2recomp::PictureMade()) {
-        // The panel left where it is (zoom.h, by distance): above, the game's picture without it; below, of the one with
-        // the readout, only the panel's pixels and the readout's panels, the rest clear
-        above = machine->Unpanelled();
+    const bool apart = zoom.KeepsPanel() && machine->Unpanelled() && machine->PictureWidth() == across && !cps2recomp::PictureMade();
+    Shown(pixels, &zoomed.keep, false, 0, !apart);
+    const uint32_t *above = machine->Picture();
+    static std::vector<uint32_t> unpanelled;
+    if (apart) {
+        // The panel left where it is (zoom.h, by distance): above, the game's picture without it, with the boxes the game's
+        // sources draw over the fight (zoomed with it: hit boxes, a mode's ball); below, of the one with the readout,
+        // only the panel's pixels and the readout's panels, the rest clear
+        unpanelled.assign(machine->Unpanelled(), machine->Unpanelled() + across * Video::kHeight);
+        DrawHud(unpanelled.data(), across, Video::kHeight, nullptr, port::kHudBoxes);
+        above = unpanelled.data();
         const uint8_t *panel = machine->PanelPixels();
         std::vector<uint8_t> kept(pixels.size(), 0);
         for (const SDL_Rect &keep : zoomed.keep) {
@@ -1717,7 +2008,38 @@ void Port::MenuPicture(std::vector<uint32_t> &pixels, uint32_t &width, uint32_t 
     const uint32_t across = static_cast<uint32_t>(ShownWidth());
     height = Video::kHeight * 3;
     width = height * 4 / 3 * across / Video::kWidth;
+    if (const int columns = FramedColumns()) {
+        // (a framed picture, Port::Framed: the menu in the shape of its columns, over all of the picture at the bottom of it,
+        // as wide as that shape and as much shorter, black above)
+        width = height * 4 / 3 * static_cast<uint32_t>(columns) / Video::kWidth;
+        pixels.assign(static_cast<size_t>(width) * height, 0xFF000000u);
+        const uint32_t tall = height * static_cast<uint32_t>(columns) / across;
+        for (uint32_t y = 0; y < tall; y++) {
+            const uint32_t *from = &shown[static_cast<size_t>(y * Video::kHeight / tall) * across];
+            uint32_t *to = &pixels[static_cast<size_t>(height - tall + y) * width];
+            for (uint32_t x = 0; x < width; x++) {
+                to[x] = from[x * across / width];
+            }
+        }
+        return;
+    }
     pixels.resize(static_cast<size_t>(width) * height);
+    if (port::Turned()) {
+        // (the menu stays as it is, over the picture stood up in its middle at its shape, black beside it)
+        std::vector<uint32_t> turned;
+        port::TurnPicture(shown.data(), static_cast<int>(across), turned);
+        const uint32_t tall = height, wide = static_cast<uint32_t>(std::lround(tall * port::PictureShape(Video::kHeight, static_cast<int>(across), port::Shape::Arcade, 1.0f)));
+        const uint32_t left = (width - std::min(wide, width)) / 2;
+        std::fill(pixels.begin(), pixels.end(), 0xFF000000u);
+        for (uint32_t y = 0; y < tall; y++) {
+            const uint32_t *from = &turned[static_cast<size_t>(y * across / tall) * Video::kHeight];
+            uint32_t *to = &pixels[static_cast<size_t>(y) * width + left];
+            for (uint32_t x = 0; x < wide && left + x < width; x++) {
+                to[x] = from[x * Video::kHeight / wide];
+            }
+        }
+        return;
+    }
     for (uint32_t y = 0; y < height; y++) {
         const uint32_t *from = &shown[static_cast<size_t>(y / 3) * across];
         uint32_t *to = &pixels[static_cast<size_t>(y) * width];
@@ -2018,7 +2340,9 @@ void Port::Step(const uint16_t *players) {
         TheGame().beforeFrame(*machine);
     }
     // (the zoom by distance leaves the game's panel where it is: the frame drawn with it apart, zoom.h)
-    machine->panel = zoom.KeepsPanel() ? Machine::Panel{TheGame().panel, TheGame().panelLayers} : Machine::Panel{};
+    machine->panel = zoom.KeepsPanel() || (TheGame().framedColumns && TheGame().framedColumns() > 0)
+                         ? Machine::Panel{TheGame().panel, TheGame().panelLayers}
+                         : Machine::Panel{};
     machine->RunFrame();
     if (opt.musicTest) {
         MusicTest();
@@ -2194,7 +2518,7 @@ void Port::Say() {
     std::string line = typed;
     typing = false;
     typed.clear();
-    if (!net || connecting) {
+    if (!net || connecting || net->Watching()) {
         return;
     }
     net->Say(line);
@@ -2352,7 +2676,7 @@ void Port::BackToSolo(bool stillHosting) {
     }
     ownFeatures.clear();
     zoom.Forbid(false);
-    machine->SetBoardTiming(FeatureOn("arcade_timing"));
+    machine->SetBoardTiming(BoardTimingWanted());
     hostedFromMenu = false;
     if (!stillHosting) {
         fprintf(stderr, "online: playing alone again\n");
@@ -2378,6 +2702,143 @@ void Port::LeaveOnline() {
         BackToSolo(false);
     } else {
         quit = true;
+    }
+}
+
+
+void Port::OnlineEvent(int player, const std::string &text) {
+    for (size_t at = 0; at < text.size();) {
+        const size_t comma = std::min(text.find(',', at), text.size());
+        const std::string item = text.substr(at, comma - at);
+        at = comma + 1;
+        const size_t eq = item.find('=');
+        if (eq == std::string::npos) {
+            continue;
+        }
+        const std::string name = item.substr(0, eq);
+        if (name == "mode" && player == 0) {
+            const int mode = atoi(item.c_str() + eq + 1);
+            const size_t colon = item.find(':', eq);
+            const uint32_t seed = colon == std::string::npos ? 1 : static_cast<uint32_t>(strtoul(item.c_str() + colon + 1, nullptr, 10));
+            battle::StartOnline(*machine, mode, seed);
+        } else if (OwnRow(player, name)) {
+            const Feature *feature = FindFeature(name);
+            const int value = atoi(item.c_str() + eq + 1);
+            if (feature && value >= 0 && value < static_cast<int>(std::max<size_t>(feature->choices.size(), 2))) {
+                SetFeatureForNow(feature->name, value);
+            }
+        }
+    }
+}
+
+std::vector<Port::OnlineRow> Port::OnlineRows() const {
+    std::vector<OnlineRow> rows;
+    if (!net || connecting || net->Watching()) {
+        return rows;
+    }
+    const int me = net->Local();
+    if (net->Players() == 2 && net->Hosting()) {
+        rows.push_back({0, "", ""});
+    }
+    if (net->Players() == 2 && FindFeature(me == 0 ? "court_one" : "court_two")) {
+        rows.push_back({1, me == 0 ? "court_one" : "court_two", "Ball battle: your fighter"});
+    }
+    if (net->Players() == 2 && FindFeature("team_size")) {
+        const int size = FeatureValue("team_size") == 1 ? 3 : 2;
+        static const char *const kOrder[3] = {"first", "second", "third"};
+        for (int n = 0; n < size; n++) {
+            rows.push_back({1, "team_" + std::to_string(me + 1) + "_" + std::to_string(n + 1), std::string("Tag team: your ") + kOrder[n]});
+        }
+    }
+    rows.push_back({2, "", net->Hosting() && hostedFromMenu ? "Leave the match (play alone)" : "Leave the match"});
+    return rows;
+}
+
+void Port::OnlineMenu(unsigned pressed) {
+    const std::vector<OnlineRow> rows = OnlineRows();
+    if (rows.empty()) {
+        // (watching, or a host waiting: Confirm leaves, Back stays)
+        if (pressed & recomp::kMenuConfirm) {
+            LeaveOnline();
+        } else if (pressed & recomp::kMenuBack) {
+            leaving = false;
+        }
+        return;
+    }
+    const int count = static_cast<int>(rows.size());
+    onlineRow = std::clamp(onlineRow, 0, count - 1);
+    if (pressed & recomp::kMenuBack) {
+        leaving = false;
+        return;
+    }
+    if (pressed & recomp::kMenuUp) {
+        onlineRow = (onlineRow + count - 1) % count;
+    }
+    if (pressed & recomp::kMenuDown) {
+        onlineRow = (onlineRow + 1) % count;
+    }
+    const OnlineRow &row = rows[onlineRow];
+    const int way = (pressed & recomp::kMenuRight) ? 1 : (pressed & recomp::kMenuLeft) ? -1 : 0;
+    if (row.kind == 0) {
+        for (int n = 0; way && n < 3; n++) { // (the next mode this game has)
+            onlineMode = (onlineMode + way + 3) % 3;
+            if (OnlineModeHere(onlineMode)) {
+                break;
+            }
+        }
+        if (pressed & recomp::kMenuConfirm) {
+            const uint32_t seed = static_cast<uint32_t>(std::random_device()()) | 1;
+            net->Command("mode=" + std::to_string(onlineMode) + ":" + std::to_string(seed));
+            leaving = false;
+        }
+    } else if (row.kind == 1 && way) {
+        const Feature *feature = FindFeature(row.feature);
+        if (feature && !feature->choices.empty()) {
+            const int choices = static_cast<int>(feature->choices.size());
+            const auto it = onlinePicks.find(row.feature);
+            const int now = it != onlinePicks.end() ? it->second : FeatureValue(feature->name);
+            const int next = (now + way + choices) % choices;
+            onlinePicks[row.feature] = next;
+            net->Command(row.feature + "=" + std::to_string(next));
+        }
+    } else if (row.kind == 2 && (pressed & recomp::kMenuConfirm)) {
+        LeaveOnline();
+    }
+}
+
+// What the events that have come or been made say, on the screen as the chat's lines do: the host's mode, a player's
+// fighters
+void Port::HearEvents() {
+    for (const auto &[player, text] : net->TakeEvents()) {
+        if (text.rfind("hello,", 0) == 0) {
+            continue; // (a player's own fighters as they came in with: not news)
+        }
+        const std::string name = net->MachineName(player);
+        const std::string who = !net->Watching() && player == net->Local() ? "You"
+                                : name.empty() ? (player == 0 ? "The host" : "Player " + std::to_string(player + 1)) : name;
+        for (size_t at = 0; at < text.size();) {
+            const size_t comma = std::min(text.find(',', at), text.size());
+            const std::string item = text.substr(at, comma - at);
+            at = comma + 1;
+            const size_t eq = item.find('=');
+            if (eq == std::string::npos) {
+                continue;
+            }
+            const std::string name = item.substr(0, eq);
+            const int value = atoi(item.c_str() + eq + 1);
+            std::string said;
+            if (name == "mode" && player == 0 && value >= 0 && value < 3) {
+                said = who + (value == 0 ? " went back to Versus" : std::string(" started ") + kOnlineModes[value]);
+            } else if (const Feature *feature = FindFeature(name); feature && OwnRow(player, name) && value >= 0 &&
+                                                                    value < static_cast<int>(feature->choices.size())) {
+                said = who + (player == net->Local() ? " picked " : " picked ") + feature->choices[value] +
+                       (name.rfind("court", 0) == 0 ? " (Ball battle)" : " (Tag team)");
+            }
+            if (!said.empty()) {
+                fprintf(stderr, "online: %s\n", said.c_str());
+                chat.push_back({said, tick + kChatTicks, !net->Watching() && player == net->Local()});
+            }
+        }
     }
 }
 
@@ -2446,10 +2907,11 @@ void Port::ArcadeFrame() {
 
 void Port::Matched() {
     connecting = false;
-    chatHintUntil = tick + kChatTicks;
+    net->BeginSet();
+    chatHintUntil = net->Watching() ? 0 : tick + kChatTicks;
     // (the host's player, playing while it waited, is in already; the joining side is told so in the welcome)
-    cameIn = net->Arcade() && cameIn;
-    otherIn = !net->Hosting() && net->HostIn();
+    cameIn = net->Watching() || (net->Arcade() && cameIn);
+    otherIn = net->Watching() || (!net->Hosting() && net->HostIn());
     std::string names;
     for (int player = 0; player < Machine::kMaxPlayers; player++) {
         if (net->MachineOf(player) >= 0) {
@@ -2464,13 +2926,13 @@ void Port::Matched() {
     streak[0] = streak[1] = roundsWon[0] = roundsWon[1] = 0;
     roundCounted = false;
     rejoin.clear();
-    frame = 0; // (the match's frames count from its start, on both sides)
+    frame = net->Watching() ? net->WatchStart() : 0; // viewers begin at a confirmed snapshot
     // (the hashes compared leave out the picture: frames run again are not drawn)
     opt.hashNoPicture = true;
     if (net->Local() != 0) {
         opt.eepromPath.clear(); // (the board settings are the host's, for this match: the player's own are left as they are)
     }
-    machine->SetBoardTiming(FeatureOn("arcade_timing"));
+    machine->SetBoardTiming(BoardTimingWanted());
     SoundtrackFollow();
 }
 
@@ -2562,7 +3024,7 @@ void Port::RunFrame() {
     }
     ClearSpareRan();
     SoundtrackFollow();
-    machine->SetBoardTiming(FeatureOn("arcade_timing"));
+    machine->SetBoardTiming(BoardTimingWanted());
     if (!opt.moviePlay.empty()) {
         auto it = playMovie.changes.find(frame);
         if (it != playMovie.changes.end()) {
@@ -2693,17 +3155,22 @@ void Port::RunFrame() {
         }
     }
     if (!opt.trace.empty()) {
-        // LOW-HIGH:FILE (hex addresses): those bytes of work RAM after every frame, one frame after another
+        // LOW-HIGH:FILE (hex addresses): those bytes of work RAM (or of the video memory, 900000-92FFFF) after every
+        // frame, one frame after another
         static FILE *file = nullptr;
         static uint32_t low = 0, high = 0;
         if (!file) {
             const size_t dash = opt.trace.find('-'), colon = opt.trace.find(':');
-            low = static_cast<uint32_t>(strtoul(opt.trace.c_str(), nullptr, 16)) & 0xFFFF;
-            high = static_cast<uint32_t>(strtoul(opt.trace.c_str() + dash + 1, nullptr, 16)) & 0xFFFF;
+            low = static_cast<uint32_t>(strtoul(opt.trace.c_str(), nullptr, 16)) & 0xFFFFFF;
+            high = static_cast<uint32_t>(strtoul(opt.trace.c_str() + dash + 1, nullptr, 16)) & 0xFFFFFF;
+            if (low < kVideoRamLow || low >= kVideoRamHigh) {
+                low &= 0xFFFF;
+                high &= 0xFFFF;
+            }
             file = fopen(opt.trace.c_str() + colon + 1, "wb");
         }
         if (file && high >= low) {
-            fwrite(&machine->ram[low], 1, high - low + 1, file);
+            fwrite(Ram(low), 1, high - low + 1, file);
             fflush(file);
         }
     }
@@ -2950,6 +3417,8 @@ void Usage() {
             "  --auto SEED[:FROM[:N]] made-up input (from frame FROM; for N players, 2 unless said)\n"
             "  --rollback-test SEED   each frame run as online play's rollback would: the other players' controls late\n"
             "                         and guessed, and the frames guessed wrong run again (--hash-log must not change)\n"
+            "  --watch CODE          watch a running match without controlling any player\n"
+            "  --net-spectators      hosting: allow spectators (off by default)\n"
             "  --host [PORT]          online play: wait for the other players (on UDP port PORT, 7845 unless said);\n"
             "                         the host is player 1, and its board settings and play features are the match's\n"
             "                         (with tag team's 2 vs 2, a match of four: up to three machines join)\n"
@@ -2982,13 +3451,13 @@ void Usage() {
             "  --soundtrack DIR       the custom soundtrack's folder (its songs.txt names the files)\n"
             "  --list-songs           the songs the soundtrack's files are named for: name, number, what it is\n"
             "  --soundtrack-dump FILE (with --headless) write what the custom soundtrack plays to a WAV file\n"
-            "  --poke A=B,...         write byte B at RAM address A after every frame (hex)\n"
+            "  --poke A=B,...         write byte B at RAM (or video memory) address A after every frame (hex)\n"
             "  --dump-ram F:FILE      write work RAM after frame F (and FILE.video, .objects, .regs); more than once\n"
             "  --check-rewrites       run every rewritten routine and its original, and report differences\n"
             "  --no-rewrites          run the game's own routines where the sources have rewrites\n"
-            "  --trace LOW-HIGH:FILE  those bytes of work RAM after every frame, appended to FILE\n"
+            "  --trace LOW-HIGH:FILE  those bytes of work RAM (or video memory) after every frame, appended to FILE\n"
             "  --layer-log F:ADDR:FILE from frame F on, what each scroll screen drew on each line, and the word at ADDR\n"
-            "  --watch LOW[-HIGH]     report the 68000's writes to these addresses (hex), with who made them\n"
+            "  --watch-writes LOW[-HIGH] report the 68000's writes to these addresses (hex), with who made them\n"
             "  --keys TICK:KEY,...    keys pressed at those ticks of the screen: p (stop/go), o (a frame on),\n"
             "                         - and = (speed), n and h (a Multi game run's next game, fast forward on/off),\n"
             "                         k1.. (the game's command keys), cNAME (a command),\n"
@@ -3101,6 +3570,11 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') {
                 o.net.port = atoi(next());
             }
+        } else if (a == "--watch") {
+            o.online = o.net.watching = true;
+            o.net.address = next();
+        } else if (a == "--net-spectators") {
+            o.net.spectators = true;
         } else if (a == "--join") {
             o.online = true;
             o.net.address = next();
@@ -3116,6 +3590,12 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             if (colon != std::string::npos && colon > 0 && o.netSay.find_first_not_of("0123456789") == colon) {
                 o.netSayAt = strtoull(o.netSay.c_str(), nullptr, 10);
                 o.netSay.erase(0, colon + 1);
+            }
+        } else if (a == "--net-command") {
+            const std::string v = next();
+            const size_t colon = v.find(':');
+            if (colon != std::string::npos) {
+                o.netCommands.push_back({strtoull(v.c_str(), nullptr, 10), v.substr(colon + 1)});
             }
         } else if (a == "--net-typing") {
             o.netTyping = next();
@@ -3183,7 +3663,7 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             // (given more than once, all of them, in order: what the launcher says, then what follows it)
             const std::string more = next();
             o.features = o.features.empty() ? more : o.features + "," + more;
-        } else if (a == "--watch") {
+        } else if (a == "--watch-writes") {
             // LOW[-HIGH] (hex): who writes there; needs the interpreter, so the run is done block by block
             const std::string v = next();
             const size_t dash = v.find('-');
@@ -3356,16 +3836,34 @@ int main(int argc, char **argv) {
         int musicRate = 0;
         // A picture as the window draws it (--present-test, --present-every): through the GPU path, read back, written
         // to `path`; in a window --present-size big, or one the picture's shape at 3 times its lines
-        auto present = [&](const std::string &path, const std::vector<uint32_t> &shown, const port::Zoomed *zoomed) {
+        auto present = [&](const std::string &path, const std::vector<uint32_t> &board, const port::Zoomed *zoomed) {
             std::vector<uint32_t> drawn;
             std::string error;
-            const int across = p.ShownWidth();
-            const int outHeight = p.opt.presentHeight > 0 ? p.opt.presentHeight : 672;
+            // (a vertical game's picture turned upright, as the window shows it: port::Turned)
+            std::vector<uint32_t> upright;
+            const bool turned = port::Turned();
+            if (turned) {
+                port::TurnPicture(board.data(), p.ShownWidth(), upright);
+                zoomed = nullptr;
+            }
+            const std::vector<uint32_t> &shown = turned ? upright : board;
+            int across = turned ? +Video::kHeight : p.ShownWidth();
+            int lines = turned ? p.ShownWidth() : +Video::kHeight;
+            // (a framed picture: its own size, in the shape of its columns)
+            int shapeColumns = across, shapeLines = lines;
+            if (zoomed && zoomed->columns) {
+                across = zoomed->width;
+                lines = zoomed->height;
+                shapeColumns = zoomed->columns;
+                shapeLines = Video::kHeight;
+                zoomed = nullptr;
+            }
+            const int outHeight = p.opt.presentHeight > 0 ? p.opt.presentHeight : (turned ? 896 : 672);
             const int outWidth = p.opt.presentWidth > 0 ? p.opt.presentWidth
-                                                        : static_cast<int>(std::lround(outHeight * port::PictureShape(across, Video::kHeight, port::DisplayShape(), 4.0f / 3.0f)));
-            const SDL_FRect where = port::FitPicture(outWidth, outHeight, across, Video::kHeight, port::DisplayShape(), port::DisplayScaling());
+                                                        : static_cast<int>(std::lround(outHeight * port::PictureShape(shapeColumns, shapeLines, port::DisplayShape(), 4.0f / 3.0f)));
+            const SDL_FRect where = port::FitPicture(outWidth, outHeight, shapeColumns, shapeLines, port::DisplayShape(), port::DisplayScaling());
             if (SDL_Init(SDL_INIT_VIDEO) &&
-                port::Presenter::Render(shown.data(), across, Video::kHeight, outWidth, outHeight, where, port::DisplayScaling(), drawn, error, zoomed)) {
+                port::Presenter::Render(shown.data(), across, lines, outWidth, outHeight, where, port::DisplayScaling(), drawn, error, zoomed)) {
                 WritePng(path.c_str(), drawn.data(), outWidth, outHeight);
                 return true;
             }
@@ -3391,7 +3889,7 @@ int main(int argc, char **argv) {
                 if (p.frame % p.opt.presentEvery == 0) {
                     char path[512];
                     snprintf(path, sizeof(path), "%s%06llu.png", p.opt.presentPrefix.c_str(), static_cast<unsigned long long>(p.frame));
-                    present(path, shown, isZoomed ? &zoomed : nullptr);
+                    present(path, shown, isZoomed || zoomed.columns ? &zoomed : nullptr);
                 }
             }
             if (!p.opt.audioDump.empty()) {
@@ -3414,7 +3912,7 @@ int main(int argc, char **argv) {
             std::vector<uint32_t> shown;
             port::Zoomed zoomed;
             const bool isZoomed = p.Windowed(shown, zoomed);
-            if (!present(p.opt.presentTest, shown, isZoomed ? &zoomed : nullptr)) {
+            if (!present(p.opt.presentTest, shown, isZoomed || zoomed.columns ? &zoomed : nullptr)) {
                 result = 1;
             }
         }
@@ -3455,6 +3953,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "%llu instructions had no translation and ran in the interpreter (about %.3f%% of the run)\n",
                     static_cast<unsigned long long>(p.machine->cpu.interpreted),
                     100.0 * p.machine->cpu.interpreted * 12.0 / std::max<uint64_t>(1, p.machine->cpu.cycles));
+            if (p.machine->cpu.interpretedRam) {
+                fprintf(stderr, "%llu of them the game's own code in RAM (no translation can have it): %llu of the ROM's\n",
+                        static_cast<unsigned long long>(p.machine->cpu.interpretedRam),
+                        static_cast<unsigned long long>(p.machine->cpu.interpreted - p.machine->cpu.interpretedRam));
+            }
         }
         if (p.machine->soundSide == Machine::SoundSide::Check) {
             fprintf(stderr, "%llu writes to the sound chip the same from the driver and the Z80\n",
@@ -3474,7 +3977,8 @@ int main(int argc, char **argv) {
             return 5;
         }
         fprintf(stderr, "online: %s\n", p.net->ended.c_str());
-        if (!p.opt.headless) {
+        // (a finished set closes quietly: the launcher that started the game is still there, waiting for it)
+        if (!p.opt.headless && !p.net->SetFinished()) {
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, GAME_NAME, p.net->ended.c_str(), nullptr);
         }
     }

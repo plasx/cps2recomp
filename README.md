@@ -26,6 +26,7 @@ file). Only the versions named below work for each game, and this project cannot
 
 | Game | ROM set | Notes |
 | --- | --- | --- |
+| [**Super Street Fighter II**](games/ssf2/README.md) (1993) | `ssf2` (World 931005) | The New Challengers: the first on the CPS-2, with bonus stages |
 | [**Super Street Fighter II Turbo**](games/ssf2t/README.md) (1994) | `ssf2xjr1` (Japan 940223) | The tournament revision; Akuma and the old characters without codes |
 | [**Hyper Street Fighter II**](games/hsf2/README.md) (2004) | `hsf2` (USA 040202) | Every character in each game of the series' version, against each other; Akuma without a code |
 | [**Street Fighter Alpha**](games/sfa/README.md) (1995) | `sfa` (Europe 950727) | |
@@ -47,12 +48,15 @@ file). Only the versions named below work for each game, and this project cannot
 | [**Vampire Hunter 2**](games/vhunt2/README.md) (1997) | `vhunt2` (Japan 970929) | Night Warriors' cast on Vampire Savior's engine |
 | [**Vampire Savior Definitive**](games/vsav_definitive/README.md) (beta) | `vsavj` and `vsav2` (and `dstlk`, `nwarr`, `sfa`, `sfa2u`, `sfa3u`, `ssf2xjr1`, `msh`, `xmvsf`, `mshvsf`, `mvsc`, `xmcota`, `sgemf`, `cybots` for their stages) | Vampire Savior with all eighteen characters, and other games' stages |
 | [**Alien vs. Predator**](games/avsp/README.md) (1994) | `avspu` (USA 940520) | Beat-'em-up: three players, a stage to start at, score attack |
-| [**Street Fighter II: Champion Edition**](games/sf2ce/README.md) (1992, CPS-1) | `sf2ce` (World 920513) | Classic CPS-1 with YM2151 and OKI sound |
-| [**Street Fighter II: Hyper Fighting**](games/sf2hf/README.md) (1992, CPS-1) | `sf2hf` (World 921209) | Classic CPS-1 with YM2151 and OKI sound |
+| [**Street Fighter II: The World Warrior**](games/sf2/README.md) (1991, CPS-1) | `sf2` (World 910522) | The first, eight characters to choose; on the classic CPS-1 |
+| [**Street Fighter II: Champion Edition**](games/sf2ce/README.md) (1992, CPS-1) | `sf2ce` (World 920513) | The bosses playable, mirror matches; on the classic CPS-1 |
+| [**Street Fighter II: Hyper Fighting**](games/sf2hf/README.md) (1992, CPS-1) | `sf2hf` (World 921209) | Faster, new moves and colours; on the classic CPS-1 |
 | [**Ghouls'n Ghosts**](games/ghouls/README.md) (1988, CPS-1) | `ghouls` (World) | Platform game; classic CPS-1 with YM2151 and OKI sound |
 | [**Cadillacs and Dinosaurs**](games/dino/README.md) (1993, CPS-1) | `dino` (World 930201) | Beat-'em-up: three players, a stage to start at, score attack |
 | [**The Punisher**](games/punisher/README.md) (1993, CPS-1) | `punisheru` (USA 930422) | Beat-'em-up: two players, a stage to start at, score attack |
-| [**Giga Wing**](games/gigawing/README.md) (1999) | `gigawing` (USA 990222) | Shoot-'em-up: practice with true hit boxes, score attack, caravan, boss rush |
+| [**Giga Wing**](games/gigawing/README.md) (1999) | `gigawing` (USA 990222) | Shoot-'em-up: training mode, true hit boxes, score attack, caravan, boss rush |
+| [**Progear**](games/progear/README.md) (2001) | `progearu` (USA 010117) | Cave's horizontal shoot-'em-up: training mode, true hit boxes, score attack, caravan, boss rush |
+| [**Dimahoo**](games/dimahoo/README.md) (2000) | `dimahoou` (USA 000121) | Raizing's vertical shoot-'em-up: training mode, true hit boxes, score attack, caravan, boss rush |
 
 Each game's page has all it does, with pictures.
 
@@ -79,7 +83,7 @@ Linux, the Steam Deck and Windows can play each other.
 
 - **Host** a match from the launcher, or from the game you're playing (its menu's **Online** page: you play on until
   someone joins), and give the other player its **code**: they type it on the launcher's **Online** page. If you've
-  set your name, the match is also listed in the **lobby**, where anyone can pick it from **Open matches**. Nothing
+  set your name, the match is also listed in the **lobby**, where anyone can pick it from **Online matches**. Nothing
   needs setting up on either router.
 - The **waiting room** lists the players whose Online page is open: **Invite** one to a match in any game, and they
   **Accept** from their launcher.
@@ -90,10 +94,18 @@ Linux, the Steam Deck and Windows can play each other.
   timer, rounds); cheats are off.
 - **Four players**: in the tag-team games, with Tag team at 2 vs 2 on the host, a match is four people, each on their
   own machine or two at a machine (**People at this machine** on the Online page), all joining with the one code.
+- **Ball battle and tag team online**: in two-person matches, the host switches to either from Esc's overlay (and
+  back to versus), and each player picks their own fighters there.
 - **On screen:** the players' **names**, the ping (and the input delay, if you like), and the **win streak** of a
   player who keeps winning.
+- **FT5 / FT10:** in Marvel vs. Capcom and X-Men vs. Street Fighter, the host can choose **Set format** on the
+  **Online** page before connecting. Everyone sees the team score and the first side to reach the target wins
+  the set. After the participating machines agree on the result, it is shown for two seconds and they return to
+  the launcher.
+- **Watch** a match: a host who allows spectators has **Watch** on its lobby entry once the match is under way. Up to
+  eight viewers follow it, a moment behind, without touching it.
 - **Chat** with the other players during a match: press T (or a gamepad's right stick, or the touch screen's Chat) and
-  type, on a keyboard or your system's on-screen keyboard. It goes straight between the games.
+  type, on a keyboard or your system's on-screen keyboard. It goes between the playing machines.
 - A dropped connection waits for the other player to come back with the same code.
 
 **[More about online play →](docs/ONLINE.md)**: the lobby, the waiting room, joining by address, and how rollback works.
@@ -102,14 +114,18 @@ Linux, the Steam Deck and Windows can play each other.
 
 - **Widescreen** in the fighting games: 16:9, with more of the stage on each side ([more](docs/PICTURE.md#widescreen)).
 - **Other games' stages**: Vampire Savior Definitive, the other Vampire Savior games and the Alpha games can fight on
-  every other fighting game's stages in the collection, as those games show them, their music too: in training, the
-  stage viewer, the endless and team battles, and (an option) arcade matches. Each needs that game's ROM set.
+  every other fighting game's stages in the collection, as those games show them, their music too. Each needs that game's ROM set.
+- **Stage select**: the in-game menu's **Stage** page puts the fights on the stage you choose, the game's own or
+  another game's, whatever is played: arcade, versus, training, survival, the team and endless battles, and online
+  (the host's choice) ([more](docs/MODES.md#the-stage)).
 - **Alternative modes** in the fighting games: survival, ring out, an endless battle the game plays itself, and in
   most a tag team battle; plus a stage viewer and a model viewer ([more](docs/MODES.md)).
-- **Shoot-'em-up practice** in Giga Wing: any stage or straight at its boss, back to the start with one button, the
-  ships' true hit boxes and the enemies' shots shown ([more](docs/PRACTICE.md)); and a score attack, a caravan and a
-  boss rush ([more](docs/MODES.md#the-shoot-em-ups)).
-- **The picture your way**: sharp or smooth scaling, 4:3 or square pixels, and RetroArch shaders (CRT, scanlines,
+- **Ball battle**, a ball game in the Vampire Savior games and the Street Fighter Alphas: each fighter on a half of the stage, hitting a big ball past the other with
+  their attacks, first to 3, 5 or 10 ([more](docs/COURT.md)).
+- **Shoot-'em-up training mode** in Giga Wing, Progear and Dimahoo: any stage or straight at its boss, back to the start with one
+  button ([more](docs/PRACTICE.md)); the ships' true hit boxes, the enemies' and their shots' in any mode; a score attack,
+  a caravan and a boss rush; and the board's slowdown, or none ([more](docs/MODES.md#the-shoot-em-ups)).
+- **The picture your way**: sharp or smooth scaling, 4:3 or square pixels (a vertical game stood upright), and RetroArch shaders (CRT, scanlines,
   xBRZ and more, or your own preset). A camera zoom follows either fighter, keeps both in view, or closes in
   and out with the fighters' distance while the health bars stay put ([more](docs/PICTURE.md)).
 - **Controls**: keyboard, gamepad or arcade stick, every button changeable per player and per game.
@@ -168,7 +184,7 @@ place. Back, or the screen's **Menu**, opens the in-game menu.
   collection keeps the shared files there) or a folder of its files. The launcher checks every file and says which
   is missing or different. **Other regions** of the same release work too, played as the board plays in that region:
   the Marvel games', Super Gem Fighter's (*Pocket Fighter* in Japan), Puzzle Fighter's, Alpha's, Alpha 3's, Super
-  Turbo's, Alien vs. Predator's and Giga Wing's; each game's page names them. Other revisions don't work: each port is made from
+  Turbo's, Alien vs. Predator's, Giga Wing's, Progear's and Dimahoo's; each game's page names them. Other revisions don't work: each port is made from
   one version's program. Vampire Savior Definitive needs both `vsavj` and `vsav2`, and shows the first
   Darkstalkers', Night Warriors', Alpha's, Alpha 2's, Alpha 3's, Super Turbo's, Super Gem Fighter's, Cyberbots' and five Marvel
   games' stages with `dstlk`, `nwarr`, `sfa`, `sfa2u`, `sfa3u`, `ssf2xjr1`, `msh`, `xmvsf`, `mshvsf`, `mvsc`, `xmcota`,
@@ -190,7 +206,7 @@ With your own ROM sets in `rom/<id>/` (ignored by Git), CMake, Ninja, SDL 3 and 
 
 ```sh
 make GAME=sfa2              # twice the first time
-make GAME=sfa2 explore      # once, about ten minutes: finds the game's code and translates it
+make GAME=sfa2 explore      # optional, about ten minutes: finds more of the game's code (games/<id>/entries.txt)
 make collection             # every game whose ROM set is here, and the launcher
 ```
 
@@ -226,7 +242,7 @@ The repository holds no game data and nothing derived from it.
 
 This project is not affiliated with, endorsed by, or sponsored by Capcom or Marvel. *Street Fighter*, *Super Puzzle
 Fighter*, *Super Gem Fighter*, *Pocket Fighter*, *Vampire Savior*, *Vampire Hunter*, *Night Warriors*, *Darkstalkers*, *Mega Man*,
-*Ghouls'n Ghosts*, *Strider*, *Captain Commando*, *Cyberbots* and *Giga Wing* are trademarks of Capcom Co., Ltd.; *X-Men*, *Marvel Super Heroes*,
+*Ghouls'n Ghosts*, *Strider*, *Captain Commando*, *Cyberbots*, *Giga Wing*, *Progear* and *Dimahoo* are trademarks of Capcom Co., Ltd.; *X-Men*, *Marvel Super Heroes*,
 *The Punisher* and their characters are trademarks of Marvel Characters, Inc.; *Alien vs. Predator* and *Cadillacs and Dinosaurs* are
 trademarks of their owners; "CPS-1", "CPS-2" and "QSound" are names and trademarks of their owners, used here only to
 say what the programs work with.

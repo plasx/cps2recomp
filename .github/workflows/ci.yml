@@ -48,6 +48,8 @@ jobs:
         run: node --test online/test/*.test.js
       - name: Cross Fever reset and save-state regression (no game data)
         run: make check-crossfever-reset
+      - name: First-to scoring and confirmation regressions (no game data)
+        run: make check-first-to
 
   # Whether anything but words changed (the README, docs/, a changelog): the builds are skipped when not
   changes:

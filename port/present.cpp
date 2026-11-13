@@ -89,7 +89,11 @@ float PictureShape(int columns, int rows, Shape shape, float window) {
     case Shape::Fill: return window;
     case Shape::Arcade: break;
     }
-    // (4:3 for the board's 384 columns, and as much wider as a wider picture has more of them: 16:9 for 512)
+    // (4:3 for the board's 384 columns, and as much wider as a wider picture has more of them: 16:9 for 512; a picture
+    // stood on end, its 224 lines across: 3:4, and as much taller as it has more rows)
+    if (rows > columns) {
+        return 3.0f / 4.0f * 384.0f / rows;
+    }
     return 4.0f / 3.0f * columns / 384.0f;
 }
 
@@ -202,6 +206,9 @@ void Presenter::ApplyVsync() {
         // Off: frames are paced by the port, to the board's rate, and the picture is shown as soon as it is made,
         // where the window lets it be (no waiting for the screen, which would hold the game's controls back too).
         // On: at the screen's refresh (VSYNC, which every window has)
+        // With vsync, one frame in flight: the picture made is the next shown, none queued behind another (input lag);
+        // without, the port paces the frames and the queue is empty anyway (two: a slow GPU's frame not left out)
+        SDL_SetGPUAllowedFramesInFlight(m_device, m_vsync ? 1 : 2);
         if (m_vsync) {
             SDL_SetGPUSwapchainParameters(m_device, m_window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC);
         } else {

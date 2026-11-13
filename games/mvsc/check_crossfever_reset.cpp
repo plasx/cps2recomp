@@ -43,15 +43,24 @@ namespace {
 namespace cps2recomp {
     void RegisterCrossFever();
     void CrossFeverState(Archive &ar);
+    void TagState(Archive &ar);
+    int TagPick(uint32_t record);
 
     Game &TheGame() { static Game game; return game; }
     bool FeatureOn(const char *) { return enabled; }
     uint8_t *Ram(uint32_t address) { return &memory[address & 0xFFFF]; }
-    int TagPick(uint32_t) { return 0; }
+    bool BattleMode() { return false; }
+    namespace session { bool InSession() { return false; } }
+    namespace modes {
+        bool AttractMode() { return false; }
+        bool StageViewer() { return false; }
+    }
+    namespace marvel { bool ModelViewer() { return false; } }
     void AddHook(uint32_t address, const char *, HookFn fn) {
         Require(hooks.emplace(address, fn).second, "duplicate hook address");
     }
     namespace tag {
+        void Register(const Description &) {}
         bool Routing() { return routing; }
         int Person(int side, int pick) { return side + 2 * pick; }
         uint16_t Held(int) { return 0; }
@@ -154,6 +163,53 @@ namespace {
         MakeRecords();
         return Credits();
     }
+
+    void StateVersions() {
+        // The preview and upstream used 11 for different additions. Only the preview contains MVC's TAOR/CFVS.
+        for (unsigned version : {11u, 12u}) {
+            ClearOldState();
+            MakeRecords();
+            Credits(3);
+            std::vector<uint8_t> bytes;
+            Archive save(bytes, true);
+            save.Mark(0x54414F52);
+            uint8_t swaps[2] = {1, 0};
+            save.Pod(swaps);
+            CrossFeverState(save);
+            save.Mark(0x44535447); // the following guest-stage part must remain readable
+            Boot();
+            Archive load(bytes, false);
+            load.version = version;
+            TagState(load);
+            CrossFeverState(load);
+            load.Mark(0x44535447);
+            Require(load.Ok() && TagPick(mvsc::kPlayer1) == 1 && TagPick(mvsc::kPlayer1 + mvsc::kPlayerSize) == 0,
+                    "marked MVC state lost controller ownership");
+            Require(!Step() && !Step() && !Step() && Step(), "marked MVC state lost its gauge phase");
+        }
+        // An upstream MVC 11 state goes straight to the next section, without either preview section.
+        std::vector<uint8_t> upstream;
+        Archive save(upstream, true);
+        save.Mark(0x44535447);
+        Credits(3);
+        Archive load(upstream, false);
+        load.version = 11;
+        TagState(load);
+        CrossFeverState(load);
+        Require(load.NextMark(0x44535447), "absent preview parts consumed the upstream section");
+        load.Mark(0x44535447);
+        Require(load.Ok() && TagPick(mvsc::kPlayer1) == 0, "upstream state did not reset preview ownership");
+        for (unsigned n = 0; n < 6; n++) { Require(!Step(), "upstream state retained a stale clock"); }
+        Require(Step(), "upstream state's fresh clock did not reach seven");
+        // New states require their parts: a truncated or missing clock is an error, not a legacy default.
+        for (auto bytes : {std::vector<uint8_t>{}, std::vector<uint8_t>{1, 2, 3}, upstream}) {
+            Archive broken(bytes, false);
+            broken.version = 12;
+            Require(!broken.NextMark(0x43465653), "invalid clock mark accepted");
+            CrossFeverState(broken);
+            Require(!broken.Ok(), "new state silently accepted a missing clock");
+        }
+    }
 } // namespace
 
 int main() {
@@ -197,7 +253,8 @@ int main() {
         Credits(2);
         MakeRecords();
         Require(!Step() && Step(), "normal match transitions must retain gauge phase");
-        std::cout << "PASS: Cross Fever board reset, intro phase, disabled-feature boot and save/load clock\n";
+        StateVersions();
+        std::cout << "PASS: Cross Fever reset, clock, ownership and legacy/current marked states\n";
     } catch (const std::exception &error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

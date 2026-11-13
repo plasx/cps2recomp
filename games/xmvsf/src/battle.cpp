@@ -29,6 +29,7 @@ namespace {
 void RegisterBattle() {
     battle::Description d;
     d.result = kResult;
+    d.onlineSets = true;
     d.roundsToWin = 1; // (a tag match is decided in one round)
     d.cameraXAt = marvel::CameraXAt;
     d.cameraYAt = marvel::CameraYAt;
@@ -62,7 +63,6 @@ void RegisterBattle() {
     };
     d.fighterChoices = {"Random"};
     d.fighterChoices.insert(d.fighterChoices.end(), std::begin(kCharacterNames), std::end(kCharacterNames));
-    d.stageChoices = modes::StageChoices({"Shuffle", "Scroll"});
     d.inGame = [] { return Ram8(kPlaying) != 0; };
     d.choosing = modes::Choosing;
     d.toRound = modes::ToRound;

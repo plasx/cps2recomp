@@ -43,8 +43,15 @@ namespace {
         return Ram16(kMode) == kModeGame && Ram16(kGameStep) == kGameChoosing && Ram8(kPlayersIn) == 3;
     }
 
-    // The stage wanted put in kStage (none: the game's own)
+    // The stage wanted put in kStage (none: the game's own). Not in the board's own one-player game: there the word
+    // is the ladder's place too (the computer's opponent is the stage's character, 00388E, and the game asks which
+    // stage it is for the last opponents and Super Street Fighter II's bonus stages), so it stays the game's own;
+    // another game's stage is drawn behind such a match all the same (stages.cpp).
     void PutStage() {
+        const bool ladder = Ram8(kPlayersIn) != 3 && !modes::Wanted().stage && !BattleMode() && !session::InSession();
+        if (ladder) {
+            return;
+        }
         const int stage = session::WantedStage();
         if (stage >= 1 && stage <= kStages) {
             SetRam16(kStage, static_cast<uint16_t>(stage - 1));
@@ -61,8 +68,7 @@ namespace {
         for (int n = 0; n < 2; n++) {
             if (wanted.characters[n] >= 0 && wanted.characters[n] < kCharacters) {
                 SetRam8(Player(n) + kCharacter, static_cast<uint8_t>(wanted.characters[n]));
-                SetRam8(Player(n) + kAkuma, 0);
-                SetRam8(Player(n) + kOld, 0);
+                NotHidden(Player(n));
             }
             if (wanted.colours[n] >= 0) {
                 SetRam8(Player(n) + kColourChoice, static_cast<uint8_t>(wanted.colours[n]));
@@ -88,6 +94,8 @@ void RegisterModes() {
     d.soundQueue = kSoundQueue;
     d.soundQueueEnd = kSoundQueueEnd;
     d.tuneOff = kTuneOff;
+    d.soundQueueMask = kSoundQueueMask;
+    d.soundEntry = kSoundEntry;
     d.player1 = kPlayer1;
     d.playerSize = kPlayerSize;
     d.x = kX;

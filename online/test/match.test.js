@@ -38,7 +38,7 @@ function fixture(t) {
   env.LOBBIES = new Namespace((state) => new Lobby(state));
   env.ROOMS = new Namespace((state) => new Room(state, env));
   env.STATS = new Namespace((state) => new Stats(state));
-  const about = { game: "mvsc", title: "Marvel vs. Capcom", build: "test-build", version: "test-version", protocol: 8 };
+  const about = { game: "mvsc", title: "Marvel vs. Capcom", build: "test-build", version: "test-version", protocol: 10 };
   async function request(path, body) {
     const pending = [];
     const response = await worker.fetch(new Request("https://online.test" + path,
@@ -53,9 +53,12 @@ function fixture(t) {
   const join = (code, port, overrides = {}) => request("/v1/join/" + code, {
     ...about, addresses: ["127.0.0.1:" + port], people: 1, ...overrides,
   });
-  const poll = (host, gone = "") => request("/v1/host/" + host.code + "?secret=" +
-    encodeURIComponent(host.secret) + (gone ? "&gone=" + encodeURIComponent(gone) : ""));
-  return { env, about, request, host, join, poll, advance: (ms) => { now += ms; } };
+  const poll = (host, gone = "", active = false) => request("/v1/host/" + host.code + "?secret=" +
+    encodeURIComponent(host.secret) + (gone ? "&gone=" + encodeURIComponent(gone) : "") + (active ? "&active=1" : ""));
+  const watch = (code, overrides = {}) => request("/v1/watch/" + code, {
+    ...about, addresses: ["127.0.0.1:9000"], ...overrides,
+  });
+  return { env, about, request, host, join, poll, watch, advance: (ms) => { now += ms; } };
 }
 
 async function start(f, overrides = {}) {
@@ -66,8 +69,8 @@ async function start(f, overrides = {}) {
   return answer.body;
 }
 
-async function four(f) {
-  const host = await start(f, { players: 4, here: 1 });
+async function four(f, overrides = {}) {
+  const host = await start(f, { players: 4, here: 1, ...overrides });
   for (let i = 1; i <= 3; ++i) {
     const joined = await f.join(host.code, 7000 + i);
     assert.equal(joined.status, 200);
@@ -82,11 +85,11 @@ test("a legacy host is two players, ignoring each machine's larger people settin
   const info = await f.request("/v1/code/" + host.code);
   assert.equal(info.body.players, 2);
   assert.equal(info.body.room, 1);
-  assert.equal((await f.join(host.code, 7001, { people: 2 })).status, 200);
+  assert.equal((await f.join(host.code, 7001, { people: 2, protocol: 7 })).status, 200);
   const poll = await f.poll(host);
   assert.equal(poll.body.joined, true);
   assert.deepEqual(poll.body.addresses, ["127.0.0.1:7001"]);
-  const extra = await f.join(host.code, 7002);
+  const extra = await f.join(host.code, 7002, { protocol: 7 });
   assert.equal(extra.status, 409);
   assert.equal(extra.body.error, "Someone has joined that match already.");
 });
@@ -133,7 +136,8 @@ test("a two-person joiner cannot consume the last single seat or a ticket", asyn
 
 for (const [field, value, message] of [["game", "another-game", /another game/],
                                      ["build", "another-build", /different builds/],
-                                     ["version", "another-version", /same version/]]) {
+                                     ["version", "another-version", /same version/],
+                                     ["protocol", 9, /different online protocols/]]) {
   test("wrong " + field + " does not reserve a place", async (t) => {
     const f = fixture(t);
     const host = await start(f, { players: 4, here: 1 });
@@ -206,7 +210,7 @@ test("unknown and invalid gone tickets do not change the roster", async (t) => {
 test("a partial match remains listed, a full one leaves, and gone allows relisting", async (t) => {
   const f = fixture(t);
   const host = await start(f, { players: 4, here: 1 });
-  const listed = async () => (await f.request("/v1/lobby/mvsc?protocol=8")).body.matches.map((m) => m.code);
+  const listed = async () => (await f.request("/v1/lobby/mvsc?protocol=10")).body.matches.map((m) => m.code);
   assert.deepEqual(await listed(), [host.code]);
   assert.deepEqual((await f.request("/v1/lobby/mvsc?protocol=7")).body.matches, []);
   await f.join(host.code, 7001);
@@ -228,6 +232,26 @@ test("the same host can reopen its full code and start a new admission roster", 
   assert.deepEqual((await f.poll(host)).body, { joined: false });
   assert.equal((await f.request("/v1/code/" + host.code)).body.room, 2);
   assert.equal((await f.join(host.code, 7010, { people: 2 })).status, 200);
+});
+
+test("late gone requests from earlier live rehosts cannot evict a replacement player", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 2 });
+  let oldTicket = (await f.join(host.code, 7001, { people: 2 })).body.ticket;
+  const stale = [];
+  for (let round = 0; round < 3; round++) {
+    stale.push(oldTicket);
+    assert.equal((await f.host({ ...host, players: 4, here: 2 })).status, 200);
+    const port = 7010 + round;
+    const joined = await f.join(host.code, port, { people: 2 });
+    assert.equal(joined.status, 200);
+    // The old authenticated request arrives after /host reopened the same code and a new player joined it.
+    const poll = await f.poll(host, stale.join(","));
+    assert.deepEqual(poll.body.joiners, [`${joined.body.ticket} 127.0.0.1:${port}`],
+      "a delayed removal from an earlier match evicted the new player");
+    assert.ok(joined.body.ticket > oldTicket, "live rehosting must not reuse player ticket numbers");
+    oldTicket = joined.body.ticket;
+  }
 });
 
 test("a different host cannot replace the existing code's roster", async (t) => {
@@ -260,7 +284,7 @@ test("the expiry alarm removes both the saved match and its lobby entry", async 
   assert.equal(object.state.storage.alarm, Date.now() + 30 * 60 * 1000);
   await object.handler.alarm();
   assert.equal((await f.request("/v1/code/" + host.code)).status, 404);
-  assert.deepEqual((await f.request("/v1/lobby?protocol=8")).body.matches, []);
+  assert.deepEqual((await f.request("/v1/lobby?protocol=10")).body.matches, []);
 });
 
 test("a stored pre-upgrade match still exposes the one joiner's old addresses field", async (t) => {
@@ -276,7 +300,7 @@ test("a stored pre-upgrade match still exposes the one joiner's old addresses fi
   assert.equal(poll.body.joined, true);
   assert.deepEqual(poll.body.addresses, legacy.joiner);
   assert.equal((await f.request("/v1/code/" + host.code)).status, 409);
-  assert.equal((await f.join(host.code, 7002)).status, 409);
+  assert.equal((await f.join(host.code, 7002, { protocol: 7 })).status, 409);
 });
 
 test("an empty stored pre-upgrade match accepts one new joiner", async (t) => {
@@ -287,8 +311,156 @@ test("an empty stored pre-upgrade match accepts one new joiner", async (t) => {
   for (const key of ["players", "here", "joiners", "tickets"]) delete legacy[key];
   legacy.joiner = null;
   await storage.put("match", legacy);
-  const joined = await f.join(host.code, 7001, { people: 2 });
+  const joined = await f.join(host.code, 7001, { people: 2, protocol: 7 });
   assert.equal(joined.status, 200);
   assert.equal(joined.body.ticket, 1);
-  assert.equal((await f.join(host.code, 7002)).status, 409);
+  assert.equal((await f.join(host.code, 7002, { protocol: 7 })).status, 409);
+});
+
+test("missing protocol retains pre-protocol admission behavior", async (t) => {
+  const f = fixture(t);
+  const oldHost = await start(f, { protocol: undefined });
+  assert.equal((await f.join(oldHost.code, 7001)).status, 200);
+  const currentHost = await start(f);
+  assert.equal((await f.join(currentHost.code, 7002, { protocol: undefined })).status, 200);
+});
+
+test("four-player spectators do not reserve seats or expose private admission data in the lobby", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1, spectators: true });
+  assert.equal((await f.watch(host.code)).status, 409);
+  const joiners = [];
+  for (let player = 1; player <= 3; player++) {
+    assert.equal((await f.join(host.code, 7000 + player)).body.ticket, player);
+    joiners.push(`${player} 127.0.0.1:${7000 + player}`);
+  }
+  assert.equal((await f.watch(host.code)).status, 409, "full reservations do not imply the match started");
+  f.advance(10001);
+  await f.poll(host, "", true);
+  const viewer = await f.watch(host.code);
+  assert.equal(viewer.status, 200);
+  assert.equal(typeof viewer.body.token, "string");
+  assert.deepEqual(viewer.body.addresses, ["127.0.0.1:7000"]);
+  const poll = await f.poll(host, "", true);
+  assert.deepEqual(poll.body.joiners, joiners);
+  assert.deepEqual(poll.body.addresses, ["127.0.0.1:7001"], "legacy first-joiner address remains available");
+  assert.deepEqual(poll.body.viewers, [{ token: viewer.body.token, addresses: ["127.0.0.1:9000"] }]);
+  assert.deepEqual(poll.body.watchers, [viewer.body.token + "@127.0.0.1:9000"]);
+  assert.equal((await f.join(host.code, 7010)).status, 409);
+  const lobby = await f.request("/v1/lobby?protocol=10");
+  assert.equal(lobby.body.matches.length, 1);
+  assert.equal(lobby.body.matches[0].watching, true);
+  const publicText = JSON.stringify(lobby.body);
+  assert.equal(publicText.includes("127.0.0.1"), false);
+  assert.equal(publicText.includes(viewer.body.token), false);
+  assert.equal(publicText.includes(host.secret), false);
+});
+
+test("active direct-address four-player matches reject joins despite unused service reservations", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1, spectators: true });
+  await f.poll(host, "", true);
+  assert.equal((await f.request("/v1/code/" + host.code)).status, 409);
+  assert.equal((await f.join(host.code, 7001)).status, 409);
+  assert.equal((await f.watch(host.code)).status, 200);
+  const poll = await f.poll(host, "", true);
+  assert.deepEqual(poll.body.joiners, []);
+  assert.deepEqual(poll.body.addresses, []);
+});
+
+test("one host poll carries both gone acknowledgments and active spectator introductions", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  await f.poll(host, "", true);
+  const viewer = await f.watch(host.code);
+  const poll = await f.poll(host, "2", true);
+  assert.deepEqual(poll.body.joiners, ["1 127.0.0.1:7001", "3 127.0.0.1:7003"]);
+  assert.equal(poll.body.viewers[0].token, viewer.body.token);
+  assert.equal((await f.join(host.code, 7010)).status, 409, "running match cannot refill a released reservation");
+  await f.poll(host, "2");
+  assert.equal((await f.watch(host.code)).status, 409);
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 1);
+  assert.equal((await f.join(host.code, 7010)).body.ticket, 4);
+});
+
+test("unauthenticated polls cannot enable watching or evict a player", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  const forged = await f.request("/v1/host/" + host.code + "?secret=wrong&active=1&gone=2");
+  assert.equal(forged.status, 404);
+  assert.equal((await f.watch(host.code)).status, 409);
+  assert.equal((await f.poll(host)).body.joiners.length, 3);
+});
+
+test("spectators require host opt-in and matching game, version, build and protocol", async (t) => {
+  const f = fixture(t);
+  const closed = await four(f);
+  await f.poll(closed, "", true);
+  assert.equal((await f.watch(closed.code)).status, 409);
+  const host = await four(f, { spectators: true });
+  await f.poll(host, "", true);
+  for (const overrides of [{ game: "other" }, { version: "other" }, { build: "other" }, { protocol: 9 }]) {
+    assert.equal((await f.watch(host.code, overrides)).status, 409);
+  }
+  assert.equal((await f.watch(host.code, { addresses: [] })).status, 400);
+  assert.deepEqual((await f.poll(host, "", true)).body.viewers, []);
+});
+
+test("viewer admission is bounded, token retries update the address, and four player tickets stay intact", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  const roster = (await f.poll(host, "", true)).body.joiners;
+  const first = await f.watch(host.code);
+  const retry = await f.watch(host.code, { token: first.body.token, addresses: ["127.0.0.1:9001"] });
+  assert.equal(retry.body.token, first.body.token);
+  for (let i = 1; i < 8; i++) assert.equal((await f.watch(host.code)).status, 200);
+  assert.equal((await f.watch(host.code)).status, 429);
+  const poll = await f.poll(host, "", true);
+  assert.equal(poll.body.viewers.length, 8);
+  assert.deepEqual(poll.body.viewers[0].addresses, ["127.0.0.1:9001"]);
+  assert.deepEqual(poll.body.joiners, roster);
+});
+
+test("stale host heartbeats refuse watchers and expired viewer reservations are reclaimed", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  await f.poll(host, "", true);
+  const old = await f.watch(host.code);
+  f.advance(25001);
+  assert.equal((await f.watch(host.code)).status, 409);
+  f.advance(5000);
+  assert.deepEqual((await f.poll(host, "", true)).body.viewers, []);
+  const next = await f.watch(host.code, { token: old.body.token });
+  assert.equal(next.status, 200);
+  assert.notEqual(next.body.token, old.body.token);
+});
+
+test("rehosting clears viewers and player reservations before the next match", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  await f.poll(host, "", true);
+  const old = await f.watch(host.code);
+  assert.equal((await f.host({ ...host, players: 4, here: 2, spectators: true })).status, 200);
+  assert.equal((await f.watch(host.code, { token: old.body.token })).status, 409);
+  assert.deepEqual((await f.poll(host)).body, { joined: false });
+  const lobby = await f.request("/v1/lobby?protocol=10");
+  assert.equal(lobby.body.matches[0].watching, false);
+  await f.join(host.code, 7010, { people: 2 });
+  await f.poll(host, "", true);
+  const next = await f.watch(host.code, { token: old.body.token });
+  assert.notEqual(next.body.token, old.body.token);
+  const poll = await f.poll(host, "", true);
+  assert.equal(poll.body.joiners.length, 1);
+  assert.equal(poll.body.viewers.length, 1);
+});
+
+test("a running spectator-enabled match extends its lifetime on authenticated heartbeat", async (t) => {
+  const f = fixture(t);
+  const host = await four(f, { spectators: true });
+  f.advance(30 * 60 * 1000 - 1);
+  assert.equal((await f.poll(host, "", true)).status, 200);
+  f.advance(2);
+  assert.equal((await f.watch(host.code)).status, 200);
+  f.advance(30 * 60 * 1000 + 1);
+  assert.equal((await f.poll(host, "", true)).status, 404);
 });

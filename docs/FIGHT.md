@@ -32,7 +32,10 @@ facts and hooks.
   a sound asked for (`PlaySound`), the match and the camera a mode wants (`Wanted`, `CameraAt`), what is kept around a
   spare's frame (the game adds its own: `keep`, `fresh`, `putBack`).
 - `fight/session.h` (`session::`): the training session. Getting there from switching on, player 1's controls choosing
-  for both, the round kept as its fighting begins for "Start over" (the middle or a corner, sides swapped), the stage,
+  for both, the round kept as its fighting begins for "Start over" (the middle or a corner, sides swapped),
+  the stage (the menu's Stage page, `kStageFeature`: the player's choice for every fight, in a session or out of one,
+  which the game's hook where it takes its stage asks for with `WantedStage`; the modes of `fight/battle.h` go by it too,
+  online it is the host's: `port/netplay.cpp`),
   no clock and no knock-outs (`NoClock`, `NoKnockOut`, for the game's own clock and damage hooks), and the aids of
   `fight.h` put together on the HUD. The game tells it, from its own hooks, each player's step (`Step`, a `StepView`),
   a hit landing (`Contact`) and a hit's damage (`Hit`); the description says where the game keeps the rest (players,
@@ -94,6 +97,10 @@ in a `battle::Description` (its result byte, camera, players' and thrown things'
 stages, and hooks for its own: getting a machine to a round, a sound, what is wanted of the next match, which
 objects are the stage's, the panel's and the fighters') and calls `battle::Register`; the menu's pages, commands and
 features are the same in every game.
+
+The court (`fight/court.h`), a ball game, is one of the battle's kinds, made only for a game that also fills in a
+`court::Description` (its attack and body boxes and each attack's power, a fighter's hitstop and its hit sounds) and
+keeps its fighters on their halves and their attacks off each other: [COURT.md](COURT.md), with the steps for a new game.
 
 The team battle (`Description::teams`; the Vampire Savior games first) is survival on both sides: each knock-down
 ends a match, as in Vampire Savior, which has no rounds, and the next is made ready on the spare machine with the

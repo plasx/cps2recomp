@@ -406,6 +406,169 @@ struct NetplayTest {
         Receive(receiver, 1);
     }
 
+    static void FirstToConsensus() {
+        const auto final = [](Netplay &match) {
+            match.set.Load({5, 0, 5, 2, 0, 0, 0, 0, 1, 5000});
+            for (auto &link : match.links) {
+                link.lastHeard = NowMs();
+                link.started = true;
+            }
+        };
+        Writer done(kSetDone);
+        done.U8(5); done.U8(5); done.U8(2); done.U8(0);
+        Netplay host(Settings(true));
+        host.needed = 4;
+        host.links.resize(3);
+        host.Assign();
+        final(host);
+        host.Take(host.links[0], done.out.data(), done.out.size());
+        Require(!host.SetAgrees(), "one peer completed a four-machine set");
+        host.Take(host.links[1], done.out.data(), done.out.size());
+        Require(!host.SetAgrees(), "a missing final-score peer was ignored");
+        host.Take(host.links[2], done.out.data(), done.out.size());
+        host.viewers.resize(2); // viewers never vote on a player set
+        Require(host.SetAgrees(), "all player acknowledgments failed to complete the set");
+        host.setAgreed = NowMs() - 2001;
+        Require(!host.Ready(5001) && host.SetFinished() && !host.failed && !host.lost && !host.left,
+                "agreed host set failed to finish normally");
+
+        Netplay client(Settings(false));
+        client.links.resize(1);
+        final(client);
+        client.Take(client.links[0], done.out.data(), done.out.size());
+        Require(!client.SetAgrees(), "client finished before the host heard all players");
+        done.out.back() = 1;
+        client.Take(client.links[0], done.out.data(), done.out.size());
+        Require(client.SetAgrees(), "host consensus did not release the client");
+        Writer bye(kBye);
+        client.Take(client.links[0], bye.out.data(), bye.out.size());
+        Require(client.SetFinished() && !client.lost && !client.failed, "host departure masked an agreed set result");
+
+        Netplay mismatch(Settings(true));
+        mismatch.links.resize(3);
+        mismatch.needed = 4;
+        mismatch.Assign();
+        final(mismatch);
+        done.out[7] = 3; // a different losing score, still a syntactically valid completed set
+        mismatch.Take(mismatch.links[2], done.out.data(), done.out.size());
+        Require(!mismatch.Ready(5001) && mismatch.failed && !mismatch.SetFinished() &&
+                mismatch.ended == "The games disagree on the final set score.", "disagreed set score was accepted");
+    }
+
+    static void ModeEvents() {
+        Netplay host(Settings(true)), client(Settings(false));
+        host.links.resize(1);
+        host.Assign();
+        client.local = 1;
+        client.roster = host.roster;
+        client.links.resize(1);
+        UdpSocket receiver;
+        std::string error;
+        Require(receiver.Open(0, error) && host.socket.Open(0, error) && client.socket.Open(0, error), "event sockets: " + error);
+        NetAddress address;
+        Require(UdpSocket::Resolve("127.0.0.1", receiver.LocalPort(), address, error), "event address: " + error);
+        host.links[0].address = client.links[0].address = address;
+        client.upTo[1] = 3;
+        client.current = 3;
+        client.events[1][1] = "mode,2";
+        const auto packet = EmitControls(client, client.links[0], receiver);
+        host.Take(host.links[0], packet.data(), packet.size());
+        Require(host.upTo[1] == 3 && host.events[1][1] == "mode,2" && host.watchModeChanged,
+                "controls acknowledged without their mode event");
+        host.Take(host.links[0], packet.data(), packet.size());
+        const auto notices = host.TakeEvents();
+        Require(notices.size() == 1 && notices[0] == std::make_pair(1, std::string("mode,2")),
+                "retransmission duplicated an event or changed its machine owner");
+        host.confirmed = 3;
+        host.upTo[0] = 3;
+        host.events[0][1] = "mode,1";
+        host.PruneEvents();
+        Require(host.events[0].count(1) == 1, "local confirmation discarded an unacknowledged event");
+        const auto retry = EmitControls(host, host.links[0], receiver);
+        client.Take(client.links[0], retry.data(), retry.size());
+        Require(client.events[0][1] == "mode,1" && client.upTo[0] == 3,
+                "unacknowledged event was missing from retransmitted controls");
+        host.links[0].has[0] = 3;
+        host.PruneEvents();
+        Require(host.events[0].empty(), "acknowledged confirmed event was not retired");
+
+        Netplay four(Settings(true));
+        four.needed = four.machines = 4;
+        four.links.resize(3);
+        four.Assign();
+        four.Command("mode,2");
+        Require(four.commanded.empty(), "four-human roster accepted a two-human mode switch");
+        four.Take(four.links[0], packet.data(), packet.size());
+        Require(four.upTo[1] == 0 && four.events[1].empty(), "four-human match accepted a remote mode event");
+
+        Netplay gap(Settings(true));
+        gap.links.resize(1);
+        gap.Assign();
+        auto skipped = packet;
+        skipped[11] = 1; // first frame becomes 1, leaving frame 0 absent
+        gap.Take(gap.links[0], skipped.data(), skipped.size());
+        Require(gap.upTo[1] == 0 && gap.events[1].empty(), "a later block skipped missing input/event history");
+        gap.Take(gap.links[0], packet.data(), packet.size());
+        Require(gap.upTo[1] == 3 && gap.events[1][1] == "mode,2", "cumulative input did not repair the missing prefix");
+    }
+
+    static void SpectatorControls() {
+        Netplay host(Settings(true));
+        UdpSocket receiver;
+        ConnectReceiver(host, receiver);
+        host.needed = host.machines = 4;
+        host.viewers.resize(1);
+        auto &viewer = host.viewers[0];
+        viewer.address = host.links[0].address;
+        viewer.token = "view-only";
+        viewer.welcome = {1};
+        viewer.state = {1};
+        viewer.pieces = 1;
+        viewer.start = viewer.ack = 10000;
+        viewer.heard = NowMs();
+        host.confirmed = 10005;
+        for (uint32_t frame = viewer.start; frame < host.confirmed; ++frame) {
+            auto &input = host.watchInputs[frame % Netplay::kWatchFrames];
+            for (int player = 0; player < 4; ++player) input.players[player] = InputAt(player, frame - viewer.start);
+            input.hash = frame * 7;
+        }
+        host.WatchSend();
+        const auto packet = Receive(receiver, 1)[0];
+        Require(packet[4] == kWatchControls, "spectator did not receive confirmed inputs");
+        auto settings = Settings(false);
+        settings.watching = true;
+        Netplay watch(settings);
+        watch.links.resize(1);
+        watch.needed = watch.machines = 4;
+        watch.current = watch.watchUpTo = 10000;
+        watch.watchToken = "wrong";
+        watch.Take(watch.links[0], packet.data(), packet.size());
+        Require(watch.watchUpTo == 10000, "spectator accepted another viewer's input stream");
+        watch.watchToken = viewer.token;
+        watch.Take(watch.links[0], packet.data(), packet.size());
+        Require(watch.watchUpTo == host.confirmed, "late spectator did not advance to confirmed frame");
+        for (uint32_t frame = viewer.start; frame < host.confirmed; ++frame) {
+            const auto &actual = watch.watchInputs[frame % Netplay::kWatchFrames];
+            const auto &expected = host.watchInputs[frame % Netplay::kWatchFrames];
+            Require(actual.players == expected.players && actual.hash == expected.hash,
+                    "spectator dropped or swapped a controller stream");
+        }
+        watch.Command("mode,2");
+        watch.Say("spectator cannot play");
+        Require(watch.commanded.empty() && watch.links[0].unheard.empty(), "viewer entered player controls/chat");
+        Writer controls(kControls);
+        watch.Take(watch.links[0], controls.out.data(), controls.out.size());
+        Require(watch.upTo == std::array<uint64_t, 4>{}, "viewer consumed a player input packet");
+        const auto cursors = host.upTo;
+        Writer ack(kWatchAck);
+        ack.Text(viewer.token); ack.U32(1); ack.U32(10005);
+        host.WatchPacket(ack.out.data(), ack.out.size(), viewer.address);
+        Require(host.viewers[0].ack == 10005 && host.upTo == cursors && host.confirmed == 10005,
+                "viewer acknowledgment changed player confirmation");
+        host.WatchPacket(controls.out.data(), controls.out.size(), viewer.address);
+        Require(host.upTo == cursors, "viewer packet injected player controls");
+    }
+
     static void Run() {
         for (const auto &[name, run] : std::initializer_list<std::pair<const char *, void (*)()>>{
                  {"reopening host packets (loopback UDP)", ReopeningPackets},
@@ -414,7 +577,10 @@ struct NetplayTest {
                  {"departure acknowledgment and retry", DepartureAcknowledgments},
                  {"departure transmission and failed-service retry", DepartureTransmission},
                  {"five mixed-machine rosters and start packets", Rosters},
-                 {"four input streams, retransmission, relay and bounded prediction", FourStreamControls}}) {
+                 {"four input streams, retransmission, relay and bounded prediction", FourStreamControls},
+                 {"all-machine first-to consensus and score mismatch", FirstToConsensus},
+                 {"reliable mode events and four-human mode guard", ModeEvents},
+                 {"four-stream confirmed spectators and read-only controls", SpectatorControls}}) {
             run();
             std::cout << "PASS: " << name << '\n';
         }

@@ -2,11 +2,190 @@
 
 ## Unreleased
 
+- **Online: four players, on up to four machines** (issue #70): with Tag team at 2 vs 2 on the host (X-Men vs. Street
+  Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs. Capcom), a match is four people on two, three or four
+  machines, all joining with the host's one code (or its address): **People at this machine** (the Online page, under
+  In a match) says whether one or two of the four play at each, two with that machine's player 1 and player 2
+  controls. The match begins when all four are there: the host's are players 1 (and 3), the others' the rest in the
+  order they came. The host is between the joining machines: each sends it its controls, its hashes and its chat, and
+  it sends each the others' with its own. One leaving or dropping ends the match for all, saying who; in a window the
+  host waits again with the same code and the others go back to it by themselves. Tag team is the host's in a match
+  now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game marks for matches
+  (`kFeatureMatch`). Protocol 10 combines four-machine play with spectators, first-to sets and two-person mode
+  changes. The introduction service (`online/`) lets a code be joined by as many as its match has room for, each
+  given a number that the host says back if they go before the match begins (their place
+  is free again); a host from before is told the one who joined, as it always was. `make GAME=<id> check-online
+  MACHINES=4` plays a match at four machines over localhost (`MACHINES=3`: the host's two and two of one; `FOUR=1`:
+  two machines of two).
+- **Marvel vs. Capcom: Cross Fever**, the Dreamcast's mode for four people, on the Alternative modes page with Tag team
+  on: each character is moved by its own person all the time, both of a team's in a Duo Team Attack, which lasts twice
+  as long, and the person on point tags out, as on the Dreamcast (`games/mvsc/src/crossfever.cpp`; `fight/tag.h`'s
+  `Held` gives each person's controls before the routing). As the Dreamcast's mode does, both teams' hyper combo gauges
+  also fill slowly by themselves, the partner off point has its moves looked for when it is in the fight (a Variable
+  Counter's newcomer), and holding Start keeps the one on point taunting. `games/mvsc/movies/cross_fever.txt` has both
+  teams' attacks at once with four people.
+- **Marvel vs. Capcom, Tag team**: a side that starts with its second character (the three punches held as the
+  choosing ends) has each person still playing the character they chose; before, the two people swapped characters.
+  Kept with save states (version 12).
+
+- **Online reliability**: preserve unacknowledged departures and mode changes for retry, keep admission tickets
+  unique across same-code rehosting, and require every playing machine to agree before a first-to set finishes.
+  Spectators receive all four players' confirmed controls and can join after the retained input window.
+- **Command-line diagnostics**: `--watch` watches a match; memory-write tracing uses `--watch-writes` so the two
+  commands no longer collide.
+
+## 1.5.0
+
+**Ball battle, five more games, and modes online.** Ball battle, a new ball game mode, comes to the Vampire Savior
+games and the Street Fighter Alphas, and the host of an online match can switch to it or the tag team battle at any
+time. Five more games: Super Street Fighter II: The New Challengers, Street Fighter II: The World Warrior and Champion
+Edition on the classic CPS-1 board, Cyberbots, and two shoot-'em-ups with training mode, Progear and Dimahoo (the
+first vertical game, its picture shown upright). Also a Stage page for every way of playing, watching online matches
+and first-to-5 or 10 sets, a camera zoom that follows the distance between the fighters, the picture drawn on the GPU
+by default, and Hyper Street Fighter II's difficulty fix.
+
+**Known issue:** in Vampire Savior 2 and Vampire Hunter 2, widescreen shows a blank strip at one end of ten of the other
+games' stages: the nine of 1.4.0 (Darkstalkers' and Night Warriors' Demitri's, Night Warriors' Donovan's, Alpha 2's
+Dan's, Alpha 3's Ken's, Sodom's, Guy's and Dhalsim's, and Super Turbo's Dee Jay's) and Cyberbots' space stage. Their own
+stages, and every other game, are not affected.
+
+- **Hyper Street Fighter II: Difficulty fix** (from danielhuebert, #341; Game page, off unless chosen): every region
+  follows the difficulty setting. The USA and Asia sets otherwise take a harder table for their region (the CPU's stage
+  ramp at its top from the first fight, and its lowest setting where the Japanese set's fifth begins); the fix keeps
+  the standard one, as bankbank's ROM patch does, without changing the ROM.
+- **Stage select, in every mode (the fighting games).** The in-game menu's first page has a **Stage** page, after
+  Game: the game's own choice, or a stage by name, the game's own or another game's (with its favourites, as before).
+  It now holds whatever is played: the board's one- and two-player games, training, survival, the team battle and the
+  endless battle's one stage (and Ball battle's: its own Stage row is gone too); online, the match is fought on the host's. The Training page's Stage row and the team
+  battle's are gone (their settings, `training_stage` and `team_stage`, are no longer read: the one setting is
+  `stage`), and the endless battle's row is now **Stages**: Shuffle, Scroll or One stage, the Stage page's. The ring
+  out, Shuffle and Scroll and the stage viewer keep their own stages; with "Other games' stages" an arcade match with
+  the game's choice is still on another game's.
+  - In a one-player game the opponents come as the board has them, on the stage chosen; a last opponent that is part of
+    its stage keeps it (Apocalypse, Onslaught). The Street Fighter II games (Hyper too), Night Warriors and Darkstalkers
+    are the exception: their stage is the opponent's own and the game goes by it (who comes next, the last opponents,
+    the bonus stages), so a one-player game there keeps its stages, and only another game's stage is shown over them.
+  - In the games whose one-player game chose each next opponent's stage at a place the port did not watch (Vampire
+    Savior and the games made from it, Street Fighter Alpha and Alpha 2, Zero 2 Alpha, Pocket Fighter), it now does.
+- **Ball battle and tag team online**: in an online match the host can switch to Ball battle or the Tag team battle
+  (and back to Versus) from Esc's overlay, and each player picks their own fighters there. The choices go with the
+  players' controls, frame-exact on both sides, rolled back like the controls; the modes' state is all in the save
+  state now (the court's per-game memory, the games' live tag). The online protocol is now 9
+  ([docs/ONLINE.md](docs/ONLINE.md#ball-battle-and-tag-team-online)).
+- **Ball battle** (the Vampire Savior games: Vampire Savior, Definitive, Vampire Savior 2, Vampire Hunter 2; Alternative modes > Ball battle): a ball game. A line splits the
+  stage and each fighter keeps to a half; attacks strike a big ball (light, medium, hard, special and gauge moves each
+  faster, the place struck deciding the angle and the spin, up or down held bending it), a crouching light kick chips
+  it up, three hits in a row make a power shot, and the ball makes whoever it hits reel or fall unless they block. The
+  fighters can hit each other too, and nobody loses health or is caught. A ball off an end of the court is the other
+  fighter's point; first to 3, 5 or 10, against the CPU (easy, medium, hard) or player 2. The court is as wide as each
+  stage is drawn (up to 768 columns), shown whole in a 16:9 frame or followed by its own camera. The toolkit's part
+  is `fight/court.h`; a game describes its boxes and its attacks' power ([docs/COURT.md](docs/COURT.md), with the
+  steps for the next game).
+- **Ball battle in the Street Fighter Alphas** (Alpha, Alpha 2, Zero 2 Alpha, Alpha 3; Alternative modes > Ball battle): the ball
+  game, as in the Vampire Savior games. The court is as wide as each stage is drawn (512 to 768 columns). In every game the
+  health bars, names and clock are not shown in a ball battle (health stays full and there is no clock); the super
+  gauges stay.
+- **The overlay's boxes under the zoom by distance**: hit boxes (and the court's ball) are drawn on the picture that is
+  zoomed, where they were drawn on the panel's layer and left out of it. Boxes can be round (`HudBox::round`).
+
+- **Online: watching a match** (from liquidmetalxy-debug, #331; recomp-common #64): a host who switches on **Allow
+  spectators** lets up to eight others watch. Once the match is under way its lobby entry offers **Watch**; the viewer
+  comes in at any point, from the host's game and both players' confirmed controls, a moment behind (an FT5 or FT10
+  set's score too). Viewers never reach the match, and the players never wait for them. The lobby list is now
+  **Online matches**. The online protocol is now 8, and the online service has a `/v1/watch` route.
+- **Online: first to 5 or 10** (from liquidmetalxy-debug, #242): in Marvel vs. Capcom and X-Men vs. Street Fighter
+  the host chooses **Online > Set format**: Casual (the default, and in Pure), FT5 or FT10, for both players. A strip
+  at the top shows the score; only finished games between the two players count (not draws, not the computer). When a
+  player reaches it, both games agree on the score, show the winner for two seconds and close, back to the launcher.
+  Both players need this version.
+- **The shoot-'em-ups (Giga Wing, Progear, Dimahoo): tester feedback.**
+  - **Training mode**: practice is now called training mode, as in the fighting games.
+  - **Hit boxes in every mode**: Player hit boxes, Enemy hit boxes and Bullet hit boxes (the enemies' shots, apart from
+    their bodies now) are switches on the Cheats page and are drawn in every mode, the board's own game too; online,
+    each player keeps their own. They are drawn with the objects the board shows: the board shows the object list the
+    game made in the frame before, and Giga Wing and Progear make theirs from the places of the frame before that (Giga
+    Wing every other frame), so the boxes were a frame or two ahead of the sprites, more so in motion. Dimahoo's were
+    also out sideways: its stage is wider than the screen and pans with the ship (A5+68E), which the boxes now follow.
+  - The player hit box is left out while the game lets hits by: in Dimahoo while a bomb goes off (its box is then the
+    bomb's, 40 by 88, which takes the shots in). Giga Wing's box can sit off the ship's middle (down -1): it was read
+    unsigned and drawn as a box the screen's height.
+  - **Boss rush goes on past the first boss**: the summary's count of the boss's flag hid the boss's end from the rush
+    (the flag goes as the next stage begins); and a game over between bosses now ends the rush with its score, where
+    it waited on the show.
+  - **Stage viewer**: a scroll speed (stopped, a quarter, half, normal, twice, four times), and the controls take it
+    over: up or right faster, down or left back the way it came (from states it keeps every half second, the frames
+    behind remade unseen, so the picture runs back smoothly), the shot button stops and starts it.
+  - **Slowdown** on the Game page: arcade perfect (the default: the board's timing, the processor waiting for its
+    memory and the video chip, `arcade_timing` for these games) or none (the 68000 overclocked four times). The scored
+    modes keep their bests apart for each. A game's sources can now decide the board's timing (`Game::boardTiming`)
+    and ask for faster play (`SetFastMotion`, beside `SetSlowMotion`).
+  - Caravan is described as what it is: a score attack against the clock.
+- **Arcade timing: a jump to the next word refetches.** A one-word instruction that always goes elsewhere (`jmp` and
+  `jsr (an)`, `rts`, `rtr`, `rte`, `trap`) refills the 68000's prefetch even when it lands on the next word, as a jump
+  table's first entry does; the interpreter left that word's wait out where translated code counted it, so Dimahoo's and
+  Giga Wing's checks with the board's timing came apart (at frames 1442 and 1259). Both count it now.
+- **Input lag with VSync on**: one frame in flight on the GPU, so the picture made is the next one shown, none queued
+  behind another. (Without VSync, the default, the port paces the frames and shows each as soon as it is made.)
+
+- **Dimahoo** (`dimahoou`, USA 000121; the European set and the Japanese *Great Mahou Daisakusen* of the same date play
+  too), Raizing's vertical shoot-'em-up and the collection's third shooter, on the toolkit's `shmup/`: free play (the
+  board's own), straight to the title, start at stage, the Board page (difficulty, ships, bombs, extra ships, one loop or
+  two, continue, demo sound), the cheats (infinite ships and bombs, invincibility for each player), a custom soundtrack
+  with its music named, and the shooter's modes: practice (with the character, ships and bombs chosen) with the ship's
+  true hit box, the enemies' shots and bodies, a readout of the magic gauge and a summary at each boss and stage end, score attack, caravan, boss
+  rush, the stage viewer and attract mode. The collection's first vertical game: its picture is shown upright in a
+  tall window, or on its side (the Display page's new Picture turned, for a vertical game only). The game keeps its
+  variables in the video memory: a game's sources now reach it by address as they reach work RAM, and `--trace` takes
+  it too.
+- **Progear** (`progearu`, USA 010117; the Asian set of the same date plays too), Cave's horizontal shoot-'em-up and
+  the collection's second shooter, on the toolkit's `shmup/` as Giga Wing is: free play (the board's own), straight to
+  the title, start at stage, the Board page (difficulty, ships, extra ships, rapid fire, continue, demo sound), the
+  cheats (infinite ships and bombs, invincibility for each player), a custom soundtrack with its music named, and the
+  shooter's modes: practice (with the pilot and gunner, ships, bombs and the shot's power chosen) with the ships' true
+  hit boxes, the enemies' shots and bodies, a readout of the power and a summary at each boss and stage end, score attack, caravan, boss rush, the stage viewer and attract mode. A game can now give the practice
+  page's readout its own words, and a game with no multiplier has its summaries count its points (Giga Wing's are as
+  they were).
+- **Alien vs. Predator's free play with a chute each**: with the Board page's Players on "Three, a chute each", free
+  play now gives each player a credit on their own count (the game keeps one for each chute then), so players 2 and 3
+  can join too; before, only the first player's count was filled.
+- **Alien vs. Predator's player mode as the board has it**: the Board page's hook worked out the two variables
+  the game reads from the player mode with modes 0 and 2 the other way round, so a board as it left the factory (two
+  players, one chute) played as three players with a chute each, taking the third player's coin and start, and
+  "Three, a chute each" played as two. They are now worked out as the game's own 003C5E does (found comparing work RAM
+  with MAME frame by frame).
+- **Other games' stages are drawn by the game showing them**: a borrowed stage's board keeps only what its code hands
+  over each frame, and the game's own renderer draws the stage from that, with the fighters over it (the same picture;
+  the other board no longer draws one of its own).
+- **Super Street Fighter II: The New Challengers**, set `ssf2` (World 931005): the first CPS-2 game, built from Super
+  Turbo's sources (as Zero 2 Alpha is from Alpha 2's), so it has everything the other fighting games have: free play,
+  straight to the title, the Board page, the cheats, a custom soundtrack with its music named, training mode, attract
+  mode, the stage and model viewers, survival, endless battle, ring out, the tag team battle, widescreen and invisible
+  walls, the camera's zoom, custom colours and the colour editor, and the other fighting games' stages as Super Turbo
+  has them. Its own stages are Super Turbo's (the same graphics), which the other games already show.
+- **Street Fighter II: The World Warrior** (set `sf2`, World 910522) on the classic CPS-1 board, and **Champion Edition
+  and Hyper Fighting brought up to the other fighting games**: all three now build Super Turbo's sources (each with a
+  `family.h` of its own places and facts, as Super SF2), so each has free play, straight to the title, the cheats,
+  training mode, attract mode, the stage and model viewers, survival, endless battle, ring out, the tag team battle,
+  widescreen and invisible walls, the camera's zoom, custom colours and the colour editor, the other fighting games'
+  stages (Super Turbo's among them), and a custom soundtrack with its music named. Their Board page stays the board's DIP switches; free play is the board's own switch, set by the
+  feature (the Board page's Free play and the game.cfg cheats are replaced by the Game page's and the sources' own).
+- **A custom soundtrack on the classic CPS-1 board** (Street Fighter II's): the 68000's requests to the sound board's
+  latch are looked at as on the CPS-2, the songs found from the classic sound program's table (`Game::songEntry` 2).
+- **Custom colour files' set names** are read as written or not: `[Start]`, `[Held]`, `[OldP]` and `[OldK]` in Super
+  Turbo's and Hyper Street Fighter II's files were never taken before.
+- `--stats` counts apart the game's own code run in RAM (Champion Edition calls routines it writes into video RAM),
+  which no translation can have.
+- **Super Turbo's tag team battle**: after a tag, the newcomer's health bar was drawn empty (the bar only steps down to
+  the health, and went on past nothing); it is put at the health now.
+- The toolkit: `colours::Description::palettesOf` (a game whose characters' colour sets have different counts of
+  palettes), `Game::songAddresses` (a song table whose places carry a bank above the sound ROM's size), and
+  `modes::Description::soundEntry` (a sound queue of words, the classic CPS-1's).
+
 - **Super Turbo's stages in other games have their breakable pieces**: Guile's crates, Ken's barrel, Blanka's fish
   (their pool of objects was never run, so they stood unmade and undrawn).
 - **Windows** (from Fileover, #208): a parent set's zip is found beside a game's zip when the path is written with
   backslashes, and the launcher opens without a console window beside it (recomp-common #62).
-  
+
 - **Online: the settings the match decides stay put** (#195): during an online match, the in-game menu no longer changes
   the host's board settings (game speed, difficulty, timer...), the other features that change play, or the cheats.
   A change there reached only one player's game, so the two drifted apart and the match stopped. The rows say the host
@@ -34,31 +213,9 @@
   lists (Cyberbots' ROM set needed).
 - The toolkit: `fight::SetButtonNames` (a game's own names for its buttons in the input display and the frame data
   log) and `colours::Description::lineAddress` (a game whose colour set's palettes are each in a table of their own).
-
-- **Online: four players, on up to four machines** (issue #70): with Tag team at 2 vs 2 on the host (X-Men vs. Street
-  Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs. Capcom), a match is four people on two, three or four
-  machines, all joining with the host's one code (or its address): **People at this machine** (the Online page, under
-  In a match) says whether one or two of the four play at each, two with that machine's player 1 and player 2
-  controls. The match begins when all four are there: the host's are players 1 (and 3), the others' the rest in the
-  order they came. The host is between the joining machines: each sends it its controls, its hashes and its chat, and
-  it sends each the others' with its own. One leaving or dropping ends the match for all, saying who; in a window the
-  host waits again with the same code and the others go back to it by themselves. Tag team is the host's in a match
-  now (it was off), co-op vs. computer too (one player at each machine), and so is any mode a game marks for matches
-  (`kFeatureMatch`). The protocol is 8. The introduction service (`online/`) lets a code be joined by as many as its
-  match has room for, each given a number that the host says back if they go before the match begins (their place
-  is free again); a host from before is told the one who joined, as it always was. `make GAME=<id> check-online
-  MACHINES=4` plays a match at four machines over localhost (`MACHINES=3`: the host's two and two of one; `FOUR=1`:
-  two machines of two).
-- **Marvel vs. Capcom: Cross Fever**, the Dreamcast's mode for four people, on the Alternative modes page with Tag team
-  on: each character is moved by its own person all the time, both of a team's in a Duo Team Attack, which lasts twice
-  as long, and the person on point tags out, as on the Dreamcast (`games/mvsc/src/crossfever.cpp`; `fight/tag.h`'s
-  `Held` gives each person's controls before the routing). As the Dreamcast's mode does, both teams' hyper combo gauges
-  also fill slowly by themselves, the partner off point has its moves looked for when it is in the fight (a Variable
-  Counter's newcomer), and holding Start keeps the one on point taunting. `games/mvsc/movies/cross_fever.txt` has both
-  teams' attacks at once with four people.
-- **Marvel vs. Capcom, Tag team**: a side that starts with its second character (the three punches held as the
-  choosing ends) has each person still playing the character they chose; before, the two people swapped characters.
-  Kept with save states (version 11).
+- **Each game's found code is kept in the repository**: `games/<id>/entries.txt` and `entries.txt.z80` (addresses
+  only), so a fresh checkout translates every game's known code on its first build; `make explore` and `make record`
+  add their finds to them (`tools/audit.sh` checks they hold nothing but addresses).
 
 ## 1.4.0
 

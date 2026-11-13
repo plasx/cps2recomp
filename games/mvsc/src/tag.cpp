@@ -57,7 +57,8 @@ int TagPick(uint32_t record) {
 }
 
 void TagState(Archive &ar) {
-    if (ar.version != 0 && ar.version < 11) { // (a save state from before has none)
+    // Upstream version 11 had no MVC order part; the four-player preview's version 11 already did.
+    if (ar.version != 0 && (ar.version < 11 || (ar.version == 11 && !ar.NextMark(0x54414F52)))) {
         g_swapped[0] = g_swapped[1] = 0;
         return;
     }

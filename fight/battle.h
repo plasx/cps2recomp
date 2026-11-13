@@ -40,10 +40,12 @@ namespace cps2recomp {
 class Archive;
 
 // What the machine that is running is to fight when the game next makes a match (the game's sources hook where
-// the game chooses them): the stage (1 the first; 0: the game's choice), the two characters and their colours
-// (-1: the ones chosen at the character choice). Whoever runs a machine sets this first.
+// the game chooses them): the stage (1 the first; 0: the player's own, the menu's Stage page, which is the game's
+// choice unless the player names one: session.h), the two characters and their colours (-1: the ones chosen at the
+// character choice). Whoever runs a machine sets this first.
 struct MatchWanted {
     int stage = 0;
+    bool gamesStage = false; // with no stage: the game's choice, whatever the player's own is (the ring out's fighters)
     int characters[2] = {-1, -1};
     int colours[2] = {-1, -1}; // which of a character's sets of colours (-1: as chosen)
     int partners[2] = {-1, -1}; // a tag-team game's second character of each side (-1: as chosen)
@@ -86,6 +88,7 @@ struct Description {
     // ... or, for a game that keeps it some other way, the same worked out from its memory (nullptr: the byte)
     uint8_t (*resultNow)() = nullptr;
     int roundsToWin = 2;            // rounds a player wins a match with (the board's usual: online play's win streaks)
+    bool onlineSets = false;        // opted in after checking the result and human-player records for online sets
     uint32_t cameraX = 0, cameraY = 0; // words: where the camera is (the picture's left edge and bottom)
     int cameraLeft = 256, cameraRight = 640; // the camera's ends across on every stage (the board's picture)
     // A camera whose words move (with the stage, say): their addresses now; and stages whose camera's ends differ:
@@ -150,8 +153,8 @@ struct Description {
     bool (*choosable)(int number) = nullptr;
     // A choice of the menu's "Fighter" rows (0: at random) as a character's number (-1: none)
     int (*rosterNumber)(int choice) = nullptr;
-    // The menu's choices: who (first "Random"), and where (first "Shuffle", "Scroll", then the stages)
-    std::vector<const char *> fighterChoices, stageChoices;
+    // The menu's choices of who (first "Random")
+    std::vector<const char *> fighterChoices;
     uint16_t tuneOff = 0xFF05;      // a sound asked for before another tune
     bool teams = false;             // the team battle is on the menu
     float teamLinesY = 0.27f;       //   where the line of a team's others goes, as a part of the picture (under its bars)
@@ -238,6 +241,12 @@ void Register(const Description &description);
 // description; and how many rounds win a match (online play's win streaks: port/main.cpp)
 int RoundResultNow();
 int RoundsToWin();
+bool OnlineSets();
+bool TwoPeopleNow(); // both active player records belong to people, not the computer
+// Online (port.h, OnlineEvent): a mode begun on both sides at the same frame, its choices at random from `seed` (so both
+// make the same), each side a person: 0 the game as it is (the battle ended, the board reset), 1 the ball battle (the
+// court: fight/court.h), 2 the tag team battle. False for one this game has not got.
+bool StartOnline(Machine &machine, int mode, uint32_t seed);
 // The tag-team modes (tag.h) for the team battle: each fighter of a side played by a person of its own, the side's
 // panel whoever's fighter is on (no tagging in: the next comes on at a knock-down). `labelY`: where the labels go.
 void RegisterTeamTag(float labelY);
@@ -246,10 +255,10 @@ void RegisterTeamTag(float labelY);
 
 // Whether one of these modes is on, and ending it
 bool BattleMode();
-// The stage chosen for the endless battle (one stage) or the team battle when it is another game's, after the game's
-// own in the lists (`stageChoices`, the game's `stages` first): its number in them, from 1 (0: none, or the game's own).
-// Such a match is fought on the game's first stage, and the other drawn behind it (fight/guest_stages.h, the game's
-// Host::wanted)
+// The player's stage (the menu's Stage page: session.h) in the survival, the team battle or the endless battle's one
+// stage when it is another game's, after the game's own in the list (the game's `stages` first): its number there, from
+// 1 (0: none, or the game's own). Such a match is fought on the game's first stage, and the other drawn behind it
+// (fight/guest_stages.h, the game's Host::wanted)
 int BattleStage();
 void EndBattle();
 bool BattleNoClock();    // the round's clock stands still

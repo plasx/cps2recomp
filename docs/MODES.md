@@ -8,6 +8,19 @@ menu's Reset game. Which modes a game has is on its own page.
 
 ![The in-game menu's Alternative modes page](screenshots/sfa2/menu-alternative-modes.png)
 
+### The stage
+
+The in-game menu's **Stage** page (on its first page, after Game) says where the fights are: the game's own choice, or
+a stage by name, the game's own or another game's whose ROM set you have. It holds whatever is played: the board's own
+one- and two-player games, training, survival, the team battle and the endless battle's **One stage** (its **Shuffle**
+and **Scroll** go through the stages their own way, as the ring out does). Online the match is on the host's. Confirm
+on its row marks a favourite; the row under it goes through the favourites alone.
+
+A one-player game's opponents come as the board has them, on the stage chosen; a last opponent that is part of its
+stage keeps it (Apocalypse, Onslaught). In the Street Fighter II games, Night Warriors and Darkstalkers the stage is the
+opponent's own and the game goes by it, so their one-player game keeps its stages: only another game's stage is shown
+there.
+
 ### Training mode
 
 A fight with no clock that nobody loses, and the training aids: [training mode](TRAINING.md).
@@ -31,6 +44,16 @@ No health. Knock your opponent off the end of the stage, then jump down after th
 computer plays it as a ring out too.
 
 ![Ring out in Street Fighter Alpha 2](screenshots/sfa2/ring-out.png)
+
+### Ball battle
+
+In the Vampire Savior games (Vampire Savior, its Definitive version, Vampire Savior 2, Vampire Hunter 2). A ball game: a line splits the stage in two and each fighter keeps to
+a half. Hit the big ball with your attacks, harder ones sending it faster and where you strike it deciding the angle,
+past the other fighter and off their end for a point. Three hits in a row make a power shot; a power shot or a super
+into a fighter knocks them down. First to 3, 5 or 10, against the CPU or player 2, and the camera follows the play
+([more](COURT.md)).
+
+![The court in Vampire Savior, widescreen](screenshots/vampire_savior/court.png)
 
 ### Tag team battle
 
@@ -73,19 +96,24 @@ score attack, and the stage and model viewers.
 
 ### The shoot-'em-ups
 
-Giga Wing has a shooter's modes instead:
+Giga Wing, Progear and Dimahoo have a shooter's modes instead:
 
-- **Practice**: any stage, from its start or straight at its boss, with the fighter, ships, bombs and power you
-  choose. Backspace (a gamepad's left shoulder) puts it back as it began at once; Backslash (the left trigger with the
-  left shoulder) replays your last attempt, until you touch the controls. Its aids show each ship's true hit box, the
-  point of every enemy shot and the enemies' bodies, the scoring as it happens, and a summary at each boss and stage
-  end. Slow motion and frame advance are the menu's speed and pause. [All about practice →](PRACTICE.md)
+- **Training mode**: any stage, from its start or straight at its boss, with the fighter (in Progear the pilot and gunner, in Dimahoo the character),
+  ships, bombs and power you choose. Backspace (a gamepad's left shoulder) puts it back as it began at once; Backslash (the left trigger with the
+  left shoulder) replays your last attempt, until you touch the controls. Its aids show the scoring or the power as it
+  happens and a summary at each boss and stage end. Slow motion and frame advance are the menu's speed and pause. [All
+  about training mode →](PRACTICE.md)
+- **Hit boxes**, on the Cheats page and in every mode: each ship's true hit box, the enemies' bodies and the point of
+  every enemy shot, each a switch of its own.
 - **Score attack**: one credit, no continue, no cheats; the best score is kept.
-- **Caravan**: two, three or five minutes, a ship for every one lost; the best score is kept for each length.
+- **Caravan**: a score attack against the clock: two, three or five minutes, a ship for every one lost; the best score
+  is kept for each length.
 - **Boss rush**: every boss in turn, the way between them run unseen; the best score and its time are kept.
-- **Stage viewer**: a stage scrolling by with nobody on it.
+- **Stage viewer**: a stage scrolling by with nobody on it, at the speed you choose; up or right scrolls it faster,
+  down or left back the way it came, and the shot button stops it.
+- **Slowdown** (the Game page): arcade perfect, as the board slows (the default), or none, the processor overclocked.
 
-![Giga Wing: practice, with the ship's hit box and the points of the enemies' shots](screenshots/gigawing/practice.png)
+![Giga Wing: training mode, with the ship's hit box and the points of the enemies' shots](screenshots/gigawing/practice.png)
 
 ## Multi game
 

@@ -8,6 +8,8 @@
 #include "nwarr.h"
 #include "session.h"
 
+#include "all_guests.h"
+
 #include <iterator>
 
 namespace cps2recomp {
@@ -44,9 +46,16 @@ namespace {
     // 0064D6: move.w d1,0xD88(a5), the next stage (and, in a game against the computer, the next opponent, whose
     // stage it is). A mode's stage is put in its place.
     bool StageSet(M68K &c) {
+        // (not in the board's own game against the computer: there the word is the next opponent too, so the player's
+        // stage, the menu's Stage page, is left out; another game's is drawn behind such a match all the same)
+        if (Ram8(kPlayersIn) != 3 && !modes::Wanted().stage && !BattleMode() && !session::InSession()) {
+            return false;
+        }
         const int stage = session::WantedStage();
         if (stage >= 1 && stage <= kStages) {
             c.d[1] = (c.d[1] & 0xFFFF0000) | static_cast<uint32_t>(stage - 1);
+        } else if (stage > kStages) {
+            c.d[1] &= 0xFFFF0000; // (another game's: fought on the first, its stage drawn behind: stages.cpp)
         }
         return false;
     }
@@ -55,10 +64,11 @@ namespace {
     // its place.
     bool VersusStageSet(M68K &c) {
         const int stage = session::WantedStage();
-        if (stage < 1 || stage > kStages) {
+        if (stage < 1) {
             return false;
         }
-        SetRam16(kStage, static_cast<uint16_t>(stage - 1));
+        // (another game's: fought on the first, its stage drawn behind: stages.cpp)
+        SetRam16(kStage, static_cast<uint16_t>(stage <= kStages ? stage - 1 : 0));
         Return(c);
         return true;
     }
@@ -93,8 +103,13 @@ void RegisterModes() {
     d.player1 = kPlayer1;
     d.playerSize = kPlayerSize;
     d.x = kX;
+    // (its stages, then the other games': stages.cpp, fight/all_guests.h; each plays the first stage's tune in its place)
     d.stageNames.assign(std::begin(kStageNames), std::end(kStageNames));
+    const std::vector<const char *> others = guests::NamesBut(family::kGuestId);
+    d.stageNames.insert(d.stageNames.end(), others.begin(), others.end());
+    d.infiniteStages = kStages;
     d.stageTunes.assign(std::begin(family::kStageTunes), std::end(family::kStageTunes)); // (family.h)
+    d.stageTunes.resize(d.stageNames.size(), family::kStageTunes[0]);
     d.otherTuneNames = {"Character select", "Versus"};
     d.otherTunes = {family::kTuneSelect, family::kTuneVersus};
     d.cameraLeft = kCameraLeft;
