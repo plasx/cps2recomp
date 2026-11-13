@@ -7,9 +7,11 @@ external font requests. They contain no generated photographic artwork or game a
 
 | Diagram | Meaning |
 | --- | --- |
-| [Four machines](mvsc-four-machines.svg) | P1 hosts P2/P3/P4; each person has one computer, controller and fighter owner. Teams are P1/P3 versus P2/P4. Every machine runs the full match and rollback. |
-| [Recovery and reset](online-recovery-checkpoint.svg) | Historical checkpoint `4b578bf`: retry departures until acknowledgment, preserve reconnect intent, reset the gauge phase at board boot and preserve it through ordinary transitions. |
-| [Upstream integration](online-upstream-integration.svg) | `471f7f7` combines upstream `eea67d1` with the four-player branch, retaining ownership, spectators and first-to agreement. Protocol 10; state format 12. |
+| [Four machines](mvsc-four-machines.svg) | Protocol-10 topology, per-machine input history, control packet field groups, host ownership validation, rollback limits and MVC fighter-panel routing. The history grid is schematic, not a captured trace. |
+| [Recovery and reset](online-recovery-checkpoint.svg) | Historical `4b578bf`: `gone` / `polledGone` snapshots through failed requests and concurrent departures; `Leave(reopening)` intent; `GaugeBoot` and serialized `CFVS` phase. |
+| [Upstream integration](online-upstream-integration.svg) | Version reconciliation at `471f7f7`, marked MVC state sections, spectator snapshot/input/ACK isolation, `SetAgrees()` over every playing link and acknowledged mode-event retention. |
+
+Labels were checked against the depicted revisions: `4b578bf` for the earlier checkpoint, `471f7f7` for the transport and integration diagrams, and `eea67d1` for the upstream version pair. Packet field groups are an overview rather than a byte-offset specification.
 
 The diagrams explain behavior, not completed internet playtests. The current gameplay evidence
 remains attached to `471f7f7`; the earlier checkpoint retains its own results. A real four-machine
