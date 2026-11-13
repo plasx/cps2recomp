@@ -1,33 +1,30 @@
-# Four-machine illustration
+# Online diagrams
 
-[View the figure](../screenshots/mvsc-four-machines.jpg).
+These diagrams use Morphus56K’s website design: Space Grotesk headings, Inter body text,
+JetBrains Mono labels, dark green surfaces, phosphor-green connections and cyan annotations.
+They are drawn SVGs with outlined lettering, so GitHub displays the intended fonts without
+external font requests. They contain no generated photographic artwork or game assets.
 
-The figure explains four separate computers, one controller and one fighter owner per person.
-P1 hosts; P2, P3 and P4 each exchange inputs with the host. P1/P3 form one team, P2/P4 the other.
-Every computer runs the complete game and rollback. The monitors are schematic illustrations,
-not game screenshots. The figure is not evidence of a completed four-machine internet playtest.
+| Diagram | Meaning |
+| --- | --- |
+| [Four machines](mvsc-four-machines.svg) | P1 hosts P2/P3/P4; each person has one computer, controller and fighter owner. Teams are P1/P3 versus P2/P4. Every machine runs the full match and rollback. |
+| [Recovery and reset](online-recovery-checkpoint.svg) | Historical checkpoint `4b578bf`: retry departures until acknowledgment, preserve reconnect intent, reset the gauge phase at board boot and preserve it through ordinary transitions. |
+| [Upstream integration](online-upstream-integration.svg) | `471f7f7` combines upstream `eea67d1` with the four-player branch, retaining ownership, spectators and first-to agreement. Protocol 10; state format 12. |
+
+The diagrams explain behavior, not completed internet playtests. The current gameplay evidence
+remains attached to `471f7f7`; the earlier checkpoint retains its own results. A real four-machine
+internet match and rematch with physical controllers remains outstanding.
 
 ## Design references
 
-These papers informed the presentation choices; none evaluated this implementation or establishes
-one universally best visual style.
+- [Huang, *An Eye Tracking Study into the Effects of Graph Layout*](https://arxiv.org/abs/0810.4431):
+  the preliminary study found small-angle crossings could slow path searches. These figures keep
+  routes uncrossed and use clear branching or merging points.
+- [Kim et al., *Towards Visualization Thumbnail Designs that Entice Reading Data-driven Articles*](https://arxiv.org/abs/2305.17051):
+  the study examines how visual elements and concise labels contribute to attraction and understanding.
+  These figures use short labels next to the relevant controls, events and connections.
 
-- [Huang, *An Eye Tracking Study into the Effects of Graph Layout*](https://arxiv.org/abs/0810.4431).
-  This preliminary study found small-angle crossings could slow path searches. The figure uses three
-  separate, uncrossed host-to-guest links.
-- [Kim et al., *Towards Visualization Thumbnail Designs that Entice Reading Data-driven Articles*](https://arxiv.org/abs/2305.17051).
-  The study examines how recognizable imagery, highlights and labels contribute to attraction and
-  understanding. Here, recognizable computers and arcade controllers accompany short, adjacent labels.
-- [Xiao et al., *Let the Chart Spark*](https://arxiv.org/abs/2304.14630).
-  This work explores generated imagery combined with chart structure. Here, the illustration was checked
-  separately for machine/controller counts, team ownership, input paths and readable labels.
+These are design applications, not findings tested on this networking implementation.
 
-## Artwork provenance
-
-Original explanatory artwork generated with OpenAI's image-generation tool and reviewed against the
-network implementation. No game art, gameplay capture or photographed test setup was used. The JPEG
-is a compact export of the generated artwork. [Generation brief](mvsc-four-machines.prompt.txt).
-
-Text equivalents, setup instructions and the distinction between local tests and outstanding internet
-tests remain in [Online play](../ONLINE.md#four-players-on-four-machines) and
-[the testing record](../ONLINE_TESTING.md).
+Text equivalents and detailed limits remain in [Online play](../ONLINE.md#four-players-on-four-machines)
+and [the testing record](../ONLINE_TESTING.md).

@@ -64,9 +64,9 @@ The host is P1. The other three join the same code or host address, becoming P2,
 The match starts when all four are present. Teams are **P1 + P3 versus P2 + P4**. Each person chooses their assigned
 fighter on the arcade selection screen and controls that fighter independently during a Duo Team Attack.
 
-![Architecture illustration: four separate computers, each with one six-button controller. P1 hosts three bidirectional input links to P2, P3 and P4. Teams are P1/P3 versus P2/P4; all four computers run the full match.](screenshots/mvsc-four-machines.jpg)
+![Architecture diagram: four separate computers, each with one six-button controller. P1 hosts three bidirectional input links to P2, P3 and P4. Teams are P1/P3 versus P2/P4; all four computers run the full match.](diagrams/mvsc-four-machines.svg)
 
-*Illustrated architecture, not a gameplay capture. [Figure notes and design references](diagrams/README.md).*
+*Input routing diagram. [Figure notes and design references](diagrams/README.md).*
 
 The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
 other players' inputs. Every machine runs the game and rollback. The introduction service finds the host; it does
