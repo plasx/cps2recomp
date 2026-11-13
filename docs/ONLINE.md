@@ -50,9 +50,44 @@ waits for (Esc gives up). From a terminal:
 cps2recomp-launcher --play sfa3 -- --host                  # the host: shows a code, waits for the other player
 cps2recomp-launcher --play sfa3 -- --host --net-arcade     # ... playing the game meanwhile
 cps2recomp-launcher --play sfa3 -- --join CODE             # the other player: the host's code (or address)
-cps2recomp-launcher --play mvsc -- --host --features tag_team=2  # a match of four: three more join with the code
-cps2recomp-launcher --play mvsc -- --join CODE --net-people 2    # ... two of them at this machine
+cps2recomp-launcher --play mvsc -- --host --features tag_team=2,cross_fever --net-people 1
+cps2recomp-launcher --play mvsc -- --join CODE --net-people 1   # run on each of the other three machines
 ```
+
+## Four players on four machines
+
+For Marvel vs. Capcom's Cross Fever, each person runs the game on their own machine and uses that machine's
+**player 1 controls**. Set **People at this machine** to **1** on all four. The host chooses **Tag team: 2 vs 2**
+and switches **Cross Fever** on before hosting; the joining machines take those choices from the host.
+
+The host is P1. The other three join the same code or host address, becoming P2, P3 and P4 in arrival order.
+The match starts when all four are present. Teams are **P1 + P3 versus P2 + P4**. Each person chooses their assigned
+fighter on the arcade selection screen and controls that fighter independently during a Duo Team Attack.
+
+```mermaid
+flowchart TB
+    accTitle: Four players on four separate machines
+    accDescr: P1 hosts. P2, P3 and P4 each connect to the host from their own machine. Teams are P1 with P3, and P2 with P4.
+    H["Machine 1: P1 - host - team A"]
+    P2["Machine 2: P2 - team B"]
+    P3["Machine 3: P3 - team A"]
+    P4["Machine 4: P4 - team B"]
+    H <--> P2
+    H <--> P3
+    H <--> P4
+```
+
+The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
+other players' inputs. Every machine runs the game and rollback. The introduction service finds the host; it does
+not carry gameplay traffic. Code-based admission needs the updated Worker deployed; direct-address joining does
+not use that service. On separate networks, the host still needs to be reachable through hole punching, port
+forwarding or a suitable VPN.
+
+> [!NOTE]
+> Four independent local game processes, simulated network faults and replay have passed. A real four-machine
+> internet match and rematch, with physical controllers, still need checking. See the [test record](ONLINE_TESTING.md).
+
+Two people sharing a machine remains an optional arrangement, described under [In a match](#in-a-match).
 
 ## Watching a match
 
