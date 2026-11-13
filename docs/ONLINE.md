@@ -64,18 +64,7 @@ The host is P1. The other three join the same code or host address, becoming P2,
 The match starts when all four are present. Teams are **P1 + P3 versus P2 + P4**. Each person chooses their assigned
 fighter on the arcade selection screen and controls that fighter independently during a Duo Team Attack.
 
-```mermaid
-flowchart TB
-    accTitle: Four players on four separate machines
-    accDescr: P1 hosts. P2, P3 and P4 each connect to the host from their own machine. Teams are P1 with P3, and P2 with P4.
-    H["Machine 1: P1 - host - team A"]
-    P2["Machine 2: P2 - team B"]
-    P3["Machine 3: P3 - team A"]
-    P4["Machine 4: P4 - team B"]
-    H <--> P2
-    H <--> P3
-    H <--> P4
-```
+![Four separate machines and controllers: P1 hosts, P2/P3/P4 connect to it, and teams are P1/P3 versus P2/P4.](diagrams/mvsc-four-machines.svg)
 
 The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
 other players' inputs. Every machine runs the game and rollback. The introduction service finds the host; it does
