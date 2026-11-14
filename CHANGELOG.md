@@ -31,6 +31,8 @@
 - **Online reliability**: preserve unacknowledged departures and mode changes for retry, keep admission tickets
   unique across same-code rehosting, and require every playing machine to agree before a first-to set finishes.
   Spectators receive all four players' confirmed controls and can join after the retained input window.
+  Reordered result packets no longer revoke an agreed score. Invitation replies preserve concurrent admissions
+  and ticket counters, and cannot overwrite a newer match generation.
 - **Command-line diagnostics**: `--watch` watches a match; memory-write tracing uses `--watch-writes` so the two
   commands no longer collide.
 

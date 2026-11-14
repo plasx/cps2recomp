@@ -95,6 +95,33 @@ simulation. Connection success and simulation correctness are different checks.
 Relay fallback remains a separate design: establish direct-connection failure reasons first, then evaluate relay
 latency, capacity and operating cost. Neither a relay nor real internet acceptance is provided by the local tests.
 
+## Targeted verification, November 14, 2026
+
+These checks cover the networking fixes through `b394926`, including `6dff752`. They do not rerun or replace
+`471f7f7`'s gameplay results below.
+
+- **Set-result reordering:** the production C++ regression previously failed when `ready=true` was followed by
+  a delayed `ready=false` for the same target and score. The later host goodbye then looked like a departure.
+  Readiness now stays established for that exact result. Duplicate unready packets, changed scores, a different
+  target, final goodbye and a new in-memory session are covered; all **10 protocol groups pass**. This adds no
+  wire-session nonce and does not establish protection against packets replayed across sessions.
+- **Invitation RPC interleaving:** five new regressions fail on the previous Worker and pass with the fix.
+  Deferred external Room calls expose ticket rollback during rehost, loss of a concurrent admission during poll,
+  same-millisecond replacement overwrite, expired-record resurrection and a decline overwritten by an away reply.
+  The host stores its new generation before calling Room; a reply merges only into fresh, live, matching state.
+  The generation is internal storage metadata, not a new HTTP or UDP field. Full Worker suite: **39/39 pass**;
+  the separate spectator service suite also passes. These substitutes test controlled external-await boundaries,
+  not Cloudflare's complete scheduler or a deployed service.
+
+Reproduction uses the two ROM-free commands at the top of this document and
+`node online/test-spectators.mjs`. On this arm64 Mac, the C++ check used Apple Clang 21 with
+`CXXFLAGS='-isysroot /Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk'`; the installed SDL library still
+warns that it targets a newer SDK. Whitespace and repository audit checks pass.
+
+A fully deleted or expired service record can still restart its ticket counter; the stored generation protects
+late invitation work, not old client removal tickets across record deletion. Four-machine internet/rematch,
+physical-controller, hosted CI and production Worker deployment checks remain outstanding.
+
 ## Local verification, November 13, 2026
 
 The merge with upstream `eea67d1` was checked on an arm64 Mac with the MVC interpreter build, Apple Clang 21,

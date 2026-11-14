@@ -3,15 +3,20 @@
 These diagrams use Morphus56K’s website design: Space Grotesk headings, Inter body text,
 JetBrains Mono labels, dark green surfaces, phosphor-green connections and cyan annotations.
 They are drawn SVGs with outlined lettering, so GitHub displays the intended fonts without
-external font requests. They contain no generated photographic artwork or game assets.
+external font requests. They contain no generated photographic artwork or game assets. Shallow projected faces distinguish
+records, snapshots and packet queues; all labels stay front-facing. Seeded Matrix rain is faint and excluded
+from reading areas. Geometry shows structure, not measured queue capacity or a physical hardware layout.
 
 | Diagram | Meaning |
 | --- | --- |
-| [Four machines](mvsc-four-machines.svg) | Protocol-10 topology, per-machine input history, control packet field groups, host ownership validation, rollback limits and MVC fighter-panel routing. The history grid is schematic, not a captured trace. |
+| [Four machines](mvsc-four-machines.svg) | Protocol-10 topology, per-machine input history, control packet field groups, host ownership validation, rollback limits and MVC fighter-panel routing. The raised history tiles are schematic, not a captured trace. |
 | [Recovery and reset](online-recovery-checkpoint.svg) | Historical `4b578bf`: `gone` / `polledGone` snapshots through failed requests and concurrent departures; `Leave(reopening)` intent; `GaugeBoot` and serialized `CFVS` phase. |
-| [Upstream integration](online-upstream-integration.svg) | Version reconciliation at `471f7f7`, marked MVC state sections, spectator snapshot/input/ACK isolation, `SetAgrees()` over every playing link and acknowledged mode-event retention. |
+| [Upstream integration](online-upstream-integration.svg) | Version reconciliation at `471f7f7`, marked MVC state sections, spectator snapshot/input/ACK isolation, `SetAgrees()` over every playing link acknowledged mode-event retention, monotonic result readiness and generation-safe invitation replies. |
 
-Labels were checked against the depicted revisions: `4b578bf` for the earlier checkpoint, `471f7f7` for the transport and integration diagrams, and `eea67d1` for the upstream version pair. Packet field groups are an overview rather than a byte-offset specification.
+Labels were checked against the depicted revisions: `4b578bf` for the earlier checkpoint, `471f7f7` for the transport and base integration, and `eea67d1` for the upstream version pair. The integration
+figure separately identifies result-ordering fix `6dff752` and invitation-race fix `b394926`. Their targeted
+protocol and Worker checks are recorded in [November 14 verification](../ONLINE_TESTING.md#targeted-verification-november-14-2026).
+Packet field groups are an overview rather than a byte-offset specification.
 
 The diagrams explain behavior, not completed internet playtests. The current gameplay evidence
 remains attached to `471f7f7`; the earlier checkpoint retains its own results. A real four-machine
