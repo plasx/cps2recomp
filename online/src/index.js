@@ -291,17 +291,21 @@ export class Match {
       // The same code and secret may be reopened while an old gone poll is still in flight. Never reuse its
       // ticket numbers while this match record exists, or that delayed removal could evict a new arrival.
       const tickets = match ? match.tickets || 0 : 0;
-      match = { made: now, secret, game: cleanText(body.game), build: cleanText(body.build), host: cleanAddresses(body.addresses), joiners: [],
+      match = { made: now, generation: crypto.randomUUID(), secret, game: cleanText(body.game), build: cleanText(body.build), host: cleanAddresses(body.addresses), joiners: [],
                 tickets, players, here,
                 listed: body.listed === true, name: cleanName(body.name), title: cleanText(body.title), version: cleanText(body.version),
                 protocol: Number(body.protocol) || 0, spectators: body.spectators === true, active: false, viewers: [],
                 code: url.searchParams.get("code") || "",
                 invite: cleanIds([body.invite])[0] || null, from: cleanIds([body.from])[0] || "", invited: "" };
-      await this.invite(match);
+      // Commit before the Room RPC yields: a join during it must see this roster and must not have its ticket
+      // counter overwritten when the invitation finishes. The generation also distinguishes same-ms rehosts.
       await this.state.storage.put("match", match);
       await this.state.storage.setAlarm(now + kLifetime);
-      this.told = now;
-      await this.lobby(match, "seen", match.code);
+      match = await this.invite(match);
+      if (match) {
+        this.told = now;
+        await this.lobby(match, room(match) > 0 || match.active ? "seen" : "gone", match.code);
+      }
       return json({ secret });
     }
     if (!match) {
@@ -325,8 +329,7 @@ export class Match {
       }
       // Only the authenticated host may say the match is running. Direct-address players have no service ticket,
       // so room alone cannot decide whether another player may join. Viewers never take a player reservation.
-      const active = url.searchParams.get("active") === "1" && match.spectators;
-      if (match.active && !active) await this.lobby(match, "gone", match.code);
+      const active = url.searchParams.get("active") === "1" && match.spectators, wasActive = match.active;
       match.active = active;
       if (active) {
         match.expires = now + kLifetime;
@@ -335,6 +338,7 @@ export class Match {
       match.seen = now;
       match.viewers = (match.viewers || []).filter((v) => now - v.seen < kHere);
       await this.state.storage.put("match", match);
+      if (wasActive && !active) await this.lobby(match, "gone", match.code);
       const open = room(match) > 0 && !active;
       if (open && now - (this.waitingSaid || 0) > 15000) {
         // (the stats told this host is waiting, now and then: it is counted as waiting while it has been told lately)
@@ -348,20 +352,19 @@ export class Match {
       }
       if (open) {
         if (match.invite && !match.invited) {
-          await this.invite(match);
-          if (match.invited) {
-            await this.state.storage.put("match", match);
-          }
+          match = await this.invite(match);
+          // The polling client retries non-200 responses; do not acknowledge a superseded generation's poll.
+          if (!match) return json({ error: "The match changed while polling. Try again." }, 409);
         }
       }
       const joiners = joinersOf(match);
-      const invited = match.invited && open ? { invite: match.invited } : {};
-      return json(joiners.length || active ? {
+      const invited = match.invited && room(match) > 0 && !match.active ? { invite: match.invited } : {};
+      return json(joiners.length || match.active ? {
         joined: true,
         addresses: joiners.length ? joiners[0].addresses : [],
         joiners: joiners.map((j) => [j.ticket, ...j.addresses].join(" ")),
-        viewers: active ? match.viewers.map(({ token, addresses }) => ({ token, addresses })) : [],
-        watchers: active ? match.viewers.flatMap((v) => v.addresses.map((a) => v.token + "@" + a)) : [],
+        viewers: match.active ? match.viewers.map(({ token, addresses }) => ({ token, addresses })) : [],
+        watchers: match.active ? match.viewers.flatMap((v) => v.addresses.map((a) => v.token + "@" + a)) : [],
         ...invited,
       } : { joined: false, ...invited });
     }
@@ -450,9 +453,18 @@ export class Match {
   // (the invitation given, or given again: "away" in `invited` if the player isn't in the room to be given it)
   async invite(match) {
     const said = await this.room(match, "invite");
-    if (said && said.given === false) {
-      match.invited = "away";
+    // External RPCs allow other requests to run. Merge only this result into the fresh, still-live generation:
+    // a concurrent join, decline, rehost or expiry must not be undone by a stale copy of the whole match.
+    const current = await this.state.storage.get("match");
+    if (!current || current.generation !== match.generation || current.secret !== match.secret || current.made !== match.made ||
+        Date.now() > (current.expires || current.made + kLifetime)) {
+      return null;
     }
+    if (said && said.given === false && !current.invited) {
+      current.invited = "away";
+      await this.state.storage.put("match", current);
+    }
+    return current;
   }
 
   async alarm() {

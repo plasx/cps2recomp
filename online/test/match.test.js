@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Morphus56K and contributors. Part of cps2recomp.
 // The actual Worker and Durable Object handlers, with storage and delivery stood in for in memory.
-// Requests are serial here: this does not test Cloudflare's event scheduling or the game's UDP transport.
+// Most requests are serial; deferred RPC cases explicitly interleave handlers at external-await boundaries.
+// This does not model Cloudflare's complete event scheduling or the game's UDP transport.
 
 import assert from "node:assert/strict";
 import test from "node:test";
@@ -78,6 +79,105 @@ async function four(f, overrides = {}) {
   }
   return host;
 }
+
+// Pause one invitation RPC, where Durable Objects may run another request before this one resumes.
+function deferInvite(t, f, reply = { given: false }) {
+  const room = f.env.ROOMS.get("all"), original = room.fetch;
+  let entered, release, paused = false;
+  const waiting = new Promise((resolve) => { entered = resolve; });
+  const held = new Promise((resolve) => { release = resolve; });
+  room.fetch = async (url, init) => {
+    if (!paused && new URL(url).pathname === "/invite") {
+      paused = true;
+      entered();
+      await held;
+      return Response.json(reply);
+    }
+    return original(url, init);
+  };
+  t.after(() => { release(); room.fetch = original; });
+  return { waiting, release };
+}
+
+async function invitedHost(f) {
+  // Only the external Room response is stood in for: all match mutations use the production handler.
+  f.env.ROOMS.get("all").fetch = async () => Response.json({ given: true });
+  return start(f, { players: 4, here: 1, invite: "abcdef123456" });
+}
+
+test("rehosting cannot roll back tickets while its invitation RPC is in flight", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, here: 1 });
+  assert.equal((await f.join(host.code, 7001)).body.ticket, 1);
+  const rpc = deferInvite(t, f);
+  const rehosting = f.host({ ...host, players: 4, here: 1, invite: "abcdef123456" });
+  await rpc.waiting;
+  const during = await f.join(host.code, 7002);
+  assert.equal(during.status, 200);
+  rpc.release();
+  assert.equal((await rehosting).status, 200);
+  const after = await f.join(host.code, 7003);
+  assert.equal(after.status, 200);
+  assert.ok(after.body.ticket > during.body.ticket, "rehosting must not reuse the concurrently issued ticket");
+  assert.deepEqual((await f.poll(host, String(during.body.ticket))).body.joiners,
+    [`${after.body.ticket} 127.0.0.1:7003`], "the earlier ticket must not evict the next player");
+});
+
+test("an away invitation response preserves a join admitted during the poll", async (t) => {
+  const f = fixture(t), host = await invitedHost(f);
+  const rpc = deferInvite(t, f);
+  const polling = f.poll(host);
+  await rpc.waiting;
+  const joined = await f.join(host.code, 7001);
+  assert.equal(joined.status, 200);
+  rpc.release();
+  const answer = await polling;
+  assert.equal(answer.status, 200);
+  assert.deepEqual(answer.body.joiners, [`${joined.body.ticket} 127.0.0.1:7001`]);
+  const saved = await f.env.MATCHES.get(host.code).state.storage.get("match");
+  assert.equal(saved.tickets, joined.body.ticket);
+  assert.equal(saved.joiners.length, 1);
+  assert.equal(saved.invited, "away");
+});
+
+test("a stale invitation response cannot change a replacement match from the same millisecond", async (t) => {
+  const f = fixture(t), host = await invitedHost(f);
+  const rpc = deferInvite(t, f);
+  const polling = f.poll(host);
+  await rpc.waiting;
+  assert.equal((await f.host({ ...host, players: 4, here: 2 })).status, 200);
+  await f.join(host.code, 7002, { people: 2 });
+  const storage = f.env.MATCHES.get(host.code).state.storage;
+  const replacement = await storage.get("match");
+  rpc.release();
+  await polling;
+  assert.deepEqual(await storage.get("match"), replacement);
+});
+
+test("a stale invitation response cannot resurrect an expired match", async (t) => {
+  const f = fixture(t), host = await invitedHost(f);
+  const rpc = deferInvite(t, f);
+  const polling = f.poll(host);
+  await rpc.waiting;
+  f.advance(30 * 60 * 1000 + 1);
+  assert.equal((await f.request("/v1/code/" + host.code)).status, 404);
+  rpc.release();
+  await polling;
+  assert.equal(await f.env.MATCHES.get(host.code).state.storage.get("match"), undefined);
+});
+
+test("a delayed away response does not overwrite the invited player's decline", async (t) => {
+  const f = fixture(t), host = await invitedHost(f);
+  const rpc = deferInvite(t, f);
+  const polling = f.poll(host);
+  await rpc.waiting;
+  const match = f.env.MATCHES.get(host.code);
+  assert.equal((await match.fetch("https://match/declined")).status, 200);
+  rpc.release();
+  const answer = await polling;
+  assert.equal(answer.body.invite, "declined");
+  assert.equal((await match.state.storage.get("match")).invited, "declined");
+});
 
 test("a legacy host is two players, ignoring each machine's larger people setting", async (t) => {
   const f = fixture(t);
