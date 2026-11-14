@@ -1717,9 +1717,13 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
         const bool ready = in.U8() != 0;
         if (in.ok && size == 9 && target == set.Target() &&
             ((first == target && second < target) || (second == target && first < target))) {
+            // UDP can deliver the host's pre-consensus score after its ready score. Agreement is
+            // monotonic for that exact result; a different result must establish its own agreement.
+            const bool alreadyReady = link.setReady && link.setTarget == target &&
+                link.setScore == std::array<int, 2>{first, second};
             link.setTarget = target;
             link.setScore = {first, second};
-            link.setReady = !settings.hosting && ready;
+            link.setReady = !settings.hosting && (ready || alreadyReady);
             link.lastHeard = now;
         }
         return;

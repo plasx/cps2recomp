@@ -440,9 +440,39 @@ struct NetplayTest {
         done.out.back() = 1;
         client.Take(client.links[0], done.out.data(), done.out.size());
         Require(client.SetAgrees(), "host consensus did not release the client");
+        done.out.back() = 0; // an earlier host packet can arrive after the ready packet, even just before goodbye
+        client.Take(client.links[0], done.out.data(), done.out.size());
+        client.Take(client.links[0], done.out.data(), done.out.size());
+        Require(client.SetAgrees(), "reordered pre-consensus packet revoked established host agreement");
         Writer bye(kBye);
         client.Take(client.links[0], bye.out.data(), bye.out.size());
         Require(client.SetFinished() && !client.lost && !client.failed, "host departure masked an agreed set result");
+
+        // Agreement belongs to this link's exact score and this Netplay session, not any later result.
+        Netplay changed(Settings(false));
+        changed.links.resize(1);
+        final(changed);
+        done.out.back() = 1;
+        changed.Take(changed.links[0], done.out.data(), done.out.size());
+        Require(changed.SetAgrees(), "fresh client did not accept host consensus");
+        auto wrongTarget = done.out;
+        wrongTarget[5] = wrongTarget[6] = 10;
+        changed.Take(changed.links[0], wrongTarget.data(), wrongTarget.size());
+        Require(changed.SetAgrees() && changed.links[0].setTarget == 5,
+                "a different set target replaced the agreed result");
+        done.out[7] = 3;
+        done.out.back() = 0;
+        changed.Take(changed.links[0], done.out.data(), done.out.size());
+        Require(!changed.SetAgrees() && !changed.links[0].setReady,
+                "a changed final score inherited another result's agreement");
+        done.out[7] = 2;
+        changed.Take(changed.links[0], done.out.data(), done.out.size());
+        Require(!changed.SetAgrees(), "an unready replacement score revived old agreement");
+        Netplay restarted(Settings(false));
+        restarted.links.resize(1);
+        final(restarted);
+        restarted.Take(restarted.links[0], done.out.data(), done.out.size());
+        Require(!restarted.SetAgrees(), "a new session inherited a completed session's agreement");
 
         Netplay mismatch(Settings(true));
         mismatch.links.resize(3);
