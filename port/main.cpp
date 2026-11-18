@@ -667,6 +667,17 @@ void RegisterPortFeatures() {
                                   "pixels a sharp block, in the shape the Display page shows it in.",
                                   0,
                                   {"3 times (672 lines)", "2 times (448 lines)", "4 times (896 lines)", "1080 lines"}});
+    TheGame().commands.push_back({"video_replay_save", "Video", "Save replay",
+                                  "Saves what was just played, as long as Replay length says, as a video in videos (as Record "
+                                  "video's, its sound too): kept all the while, so it needs no recording started. Made beside "
+                                  "the game in a few seconds, which goes on meanwhile. Also Alt+Shift+F12.",
+                                  nullptr});
+    TheGame().features.push_back({"video_replay", "Video", "Replay length",
+                                  "How much of what was just played Save replay saves. Kept as a save state every second and "
+                                  "the controls of every frame, so a minute of it is a few dozen megabytes of memory. Not "
+                                  "online.",
+                                  0,
+                                  {"30 seconds", "60 seconds", "10 seconds", "Off"}});
     TheGame().commands.push_back({"video_show_folder", "Video", "Show videos folder",
                                   "Opens videos beside your saves, where Record video writes, in your file manager.", nullptr});
     TheGame().commands.push_back({"online_host", "Online", "Host a match",
@@ -1352,6 +1363,10 @@ void Port::RunCommand(size_t index) {
     }
     if (index < commands.size() && !strcmp(commands[index].name, "video_record")) {
         RecordVideo();
+        return;
+    }
+    if (index < commands.size() && !strcmp(commands[index].name, "video_replay_save")) {
+        SaveReplay();
         return;
     }
     if (index < commands.size() && !strcmp(commands[index].name, "video_show_folder")) {
@@ -2409,6 +2424,170 @@ void Port::VideoFrame(const int16_t *sound, size_t soundFrames, const float *mus
     }
     const port::Shape shape = port::DisplayShape() == port::Shape::Fill ? port::Shape::Arcade : port::DisplayShape();
     recorder.Picture(picture, across, down, port::PictureShape(across, down, shape, 4.0f / 3.0f), frames);
+}
+
+// The instant replay (port.h, Replay): how many seconds are kept (the Video page's Replay length; 0: none)
+static int ReplaySeconds() {
+    static const int kSeconds[] = {30, 60, 10, 0};
+    return kSeconds[std::clamp(FeatureValue("video_replay"), 0, 3)];
+}
+
+void Port::ReplayKeep(const uint16_t *pressed) {
+    const int seconds = ReplaySeconds();
+    if (seconds == 0 || net) {
+        replay.kept.clear();
+        replay.inputs.clear();
+        return;
+    }
+    constexpr uint64_t kEvery = 60; // (a state a second)
+    if (replay.kept.empty() || frame % kEvery == 0) {
+        Replay::Kept kept;
+        kept.frame = frame;
+        KeepState(kept.state);
+        if (replay.kept.empty()) {
+            replay.inputs.clear();
+            replay.inputsFrom = frame;
+        }
+        replay.kept.push_back(std::move(kept));
+    }
+    Replay::Input input;
+    memcpy(input.players, pressed, sizeof(input.players));
+    input.service = machine->serviceButton;
+    input.test = machine->testSwitch;
+    replay.inputs.push_back(input);
+    // (the oldest kept that is still `seconds` back or less, and the controls from it on)
+    const uint64_t span = static_cast<uint64_t>(seconds) * 60;
+    while (replay.kept.size() > 1 && frame + 1 - replay.kept[1].frame >= span) {
+        replay.kept.pop_front();
+    }
+    while (!replay.inputs.empty() && replay.inputsFrom < replay.kept.front().frame) {
+        replay.inputs.pop_front();
+        replay.inputsFrom++;
+    }
+}
+
+void Port::SaveReplay() {
+    if (replay.making) {
+        shotSaid = recomp::Tr("A REPLAY IS STILL BEING SAVED");
+        shotTicks = kSpeedTicks;
+        return;
+    }
+    if (replay.kept.empty() || replay.inputs.size() < 2) {
+        shotSaid = recomp::Tr(ReplaySeconds() ? "NOTHING TO REPLAY YET" : "REPLAY LENGTH IS OFF");
+        shotTicks = kSpeedTicks;
+        return;
+    }
+    const std::string folder = PlayerFolder() + "videos/";
+    std::error_code ignored;
+    std::filesystem::create_directories(std::filesystem::path(std::u8string(folder.begin(), folder.end())), ignored);
+    std::string name = SceneName() + " replay";
+    for (int n = 2; std::filesystem::exists(std::filesystem::u8path(folder + name + ".mp4")); n++) {
+        name = SceneName() + " replay " + std::to_string(n);
+    }
+    int width = 0, height = 0;
+    VideoSize(ShownWidth(), width, height);
+    std::string error;
+    if (!replay.recorder.Start(folder + name + ".mp4", width, height, Machine::kFramesPerSecond, error)) {
+        fprintf(stderr, "replay: %s\n", error.c_str());
+        shotSaid = recomp::Tr("REPLAY NOT SAVED");
+        shotTicks = kSpeedTicks;
+        return;
+    }
+    replay.from = replay.kept;
+    replay.made.assign(replay.inputs.begin(), replay.inputs.end());
+    replay.madeFrom = replay.inputsFrom;
+    replay.at = replay.from.front().frame;
+    replay.end = replay.madeFrom + replay.made.size();
+    replay.state = std::move(replay.from.front().state);
+    replay.from.pop_front();
+    replay.making = true;
+    fprintf(stderr, "replay: %s, frames %llu to %llu (%zu bytes a state)\n", (folder + name + ".mp4").c_str(),
+            static_cast<unsigned long long>(replay.at), static_cast<unsigned long long>(replay.end), replay.state.size());
+    shotSaid = recomp::Tr("SAVING REPLAY...");
+    shotTicks = 1 << 30; // (until it is saved)
+}
+
+void Port::ReplayMake() {
+    if (!replay.making || replay.recorder.Busy()) {
+        return;
+    }
+    // A few of its frames, while the encoder keeps up (and no more than a few milliseconds of this tick's time), with
+    // the replay's machine and game in place of the port's, which are put back as they were: their state, and what a
+    // state does not hold (the picture, the controls, the video's switches), as for a spare (runtime/spare.h)
+    const auto began = std::chrono::steady_clock::now();
+    static std::vector<uint8_t> live;
+    KeepState(live);
+    uint16_t held[Machine::kMaxPlayers];
+    memcpy(held, machine->players, sizeof(held));
+    const bool service = machine->serviceButton, testOn = machine->testSwitch;
+    const auto hide = machine->video.hideObject;
+    const unsigned layers = machine->video.layerMask, markLayers = machine->video.markLayers;
+    const bool mark = machine->video.markObjects;
+    const auto wide = machine->video.wide;
+    const size_t sound = machine->audio.size();
+    const size_t pixels = static_cast<size_t>(Video::kMaxWidth) * Video::kHeight;
+    static std::vector<uint32_t> picture, shown, upright;
+    picture.assign(machine->Picture(), machine->Picture() + pixels);
+    SetRunningAhead(true); // (as run-ahead's frames: no records counted, no loading's resets: runtime/game.h)
+    PutBackState(replay.state);
+    NativeVideo::inSpare = true; // (not the picture shown: video/native.h, ShownFrame)
+    for (int n = 0; n < 8 && replay.at < replay.end && !replay.recorder.Busy(); n++) {
+        if (!replay.from.empty() && replay.from.front().frame == replay.at) {
+            PutBackState(replay.from.front().state); // (as it was then: what ran differently goes no further)
+            replay.from.pop_front();
+        }
+        const Replay::Input &input = replay.made[replay.at - replay.madeFrom];
+        machine->serviceButton = input.service;
+        machine->testSwitch = input.test;
+        const size_t before = machine->audio.size();
+        Step(input.players);
+        replay.at++;
+        replay.recorder.Sound(machine->audio.data() + before, (machine->audio.size() - before) / 2, QSound::kSampleRate);
+        machine->audio.resize(before);
+        Shown(shown, nullptr, false, 0, true, false);
+        const uint32_t *frameShown = shown.data();
+        int across = ShownWidth(), down = Video::kHeight;
+        if (port::Turned()) {
+            port::TurnPicture(shown.data(), across, upright);
+            frameShown = upright.data();
+            std::swap(across, down);
+        }
+        const port::Shape shape = port::DisplayShape() == port::Shape::Fill ? port::Shape::Arcade : port::DisplayShape();
+        replay.recorder.Picture(frameShown, across, down, port::PictureShape(across, down, shape, 4.0f / 3.0f), 1);
+        if (std::chrono::steady_clock::now() - began > std::chrono::milliseconds(4)) {
+            break;
+        }
+    }
+    NativeVideo::inSpare = false;
+    KeepState(replay.state);
+    PutBackState(live);
+    SetRunningAhead(false);
+    memcpy(machine->Picture(), picture.data(), pixels * sizeof(uint32_t));
+    memcpy(machine->players, held, sizeof(held));
+    machine->serviceButton = service;
+    machine->testSwitch = testOn;
+    machine->video.hideObject = hide;
+    machine->video.layerMask = layers;
+    machine->video.markLayers = markLayers;
+    machine->video.markObjects = mark;
+    machine->video.wide = wide;
+    machine->audio.resize(sound);
+    MarkPictureMade(); // (the window draws the CPU's picture, the port's, this tick: gpu_picture.h)
+    if (replay.at < replay.end) {
+        return;
+    }
+    const std::string path = replay.recorder.Path();
+    const double seconds = replay.recorder.Seconds();
+    const bool saved = replay.recorder.Stop();
+    replay.making = false;
+    replay.from.clear();
+    replay.made.clear();
+    replay.state.clear();
+    fprintf(stderr, "replay: %s %s (%.1f s)\n", saved ? "saved" : "not saved", path.c_str(), seconds);
+    const size_t slash = path.find_last_of('/');
+    shotSaid = saved ? std::string(recomp::Tr("REPLAY SAVED")) + "  videos/" + (slash == std::string::npos ? path : path.substr(slash + 1))
+                     : recomp::Tr("REPLAY NOT SAVED");
+    shotTicks = kSpeedTicks;
 }
 
 void Port::StageSweepFrame() {
@@ -3521,6 +3700,7 @@ void Port::RunFrame() {
     } else if (opt.rollbackTest) {
         RollbackFrame(pressed);
     } else {
+        ReplayKeep(pressed); // (the instant replay's: the state now and then, the controls every frame)
         Step(pressed);
     }
     frame++;
@@ -4301,6 +4481,7 @@ int main(int argc, char **argv) {
         auto paced = std::chrono::steady_clock::now();
         while (!p.quit && (p.opt.frames == 0 || p.frame < p.opt.frames)) {
             const bool ran = p.Tick();
+            p.ReplayMake(); // (the instant replay being made, if it is)
             if (p.net && !p.opt.unthrottled) {
                 paced += std::chrono::nanoseconds(static_cast<int64_t>(1e9 / Machine::kFramesPerSecond));
                 std::this_thread::sleep_until(paced);
@@ -4374,6 +4555,9 @@ int main(int argc, char **argv) {
         }
     } else {
         result = port::RunWindowed(p);
+    }
+    while (p.replay.making) { // (a replay being made, finished: Port::ReplayMake)
+        p.ReplayMake();
     }
     p.StopVideo();
     if (p.opt.stats) {

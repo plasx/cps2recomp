@@ -873,6 +873,18 @@ inline constexpr recomp::i18n::Entry kSpanish[] = {
     {"Arcade continue", "Continuar como en arcade"},
     {"Everyone reselects", "Todos vuelven a elegir"},
     {"After a versus match, Arcade continue keeps the winning team. Everyone reselects returns both teams to character select. The set keeps its score.", "Tras un combate versus, Continuar como en arcade conserva el equipo ganador. Todos vuelven a elegir lleva a ambos equipos a la selección de personajes. Se conserva el marcador de la serie."},
+    {"Save replay", "Guardar repetición"},
+    {"Saves what was just played, as long as Replay length says, as a video in videos (as Record video's, its sound too): kept all the while, so it needs no recording started. Made beside the game in a few seconds, which goes on meanwhile. Also Alt+Shift+F12.", "Guarda lo que se acaba de jugar, tanto como diga Duración de la repetición, como un vídeo en videos (como el de Grabar vídeo, también con su sonido): se guarda todo el tiempo, así que no hace falta empezar a grabar. Se hace junto al juego en unos segundos, y el juego sigue mientras. También Alt+Shift+F12."},
+    {"Replay length", "Duración de la repetición"},
+    {"How much of what was just played Save replay saves. Kept as a save state every second and the controls of every frame, so a minute of it is a few dozen megabytes of memory. Not online.", "Cuánto de lo que se acaba de jugar guarda Guardar repetición. Se guarda como un estado cada segundo y los controles de cada frame, así que un minuto son unas decenas de megabytes de memoria. No en línea."},
+    {"60 seconds", "60 segundos"},
+    {"Off", "No"},
+    {"A REPLAY IS STILL BEING SAVED", "TODAVÍA SE ESTÁ GUARDANDO UNA REPETICIÓN"},
+    {"NOTHING TO REPLAY YET", "AÚN NO HAY NADA QUE REPETIR"},
+    {"REPLAY LENGTH IS OFF", "LA DURACIÓN DE LA REPETICIÓN ESTÁ EN NO"},
+    {"REPLAY NOT SAVED", "REPETICIÓN NO GUARDADA"},
+    {"SAVING REPLAY...", "GUARDANDO REPETICIÓN..."},
+    {"REPLAY SAVED", "REPETICIÓN GUARDADA"},
 };
 
 } // namespace port

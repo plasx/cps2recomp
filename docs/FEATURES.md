@@ -95,6 +95,17 @@ than the game held up. `--record-video FILE.mp4` records a whole run, from its f
 headless (or `--unthrottled`) nothing is left out, the game waiting for the encoder instead, so `--movie M.txt
 --headless --record-video M.mp4` makes a movie's play into a video faster than it plays.
 
+**Save replay** (Alt+Shift+F12, the same page) saves what was just played as a video, with no recording started: the
+last 30 seconds, or 60 or 10 (**Replay length**; Off keeps nothing). All the while the port keeps the game's state (a
+save state's, about 350 KB) once a second and every frame's controls (`Port::ReplayKeep`, before each frame runs), so 30
+seconds is about 11 MB. Asked for, the frames are run again from the oldest state with those controls, a few in each
+tick in place of the port's own machine and game, which are put back as they were (as run-ahead does; the picture, the
+controls and the video's switches kept by hand, as for a spare), while the encoder keeps up (`Port::ReplayMake`, no more
+than 4 ms a tick: the game goes on at its speed). At each state kept the replay is put back to it, so that anything a
+frame run again does differently (a save state loaded, the board reset) lasts a second at most. Checked against a
+recording of the same run made as it played (sfa3, 30 seconds): the same pictures, and the same sound to the sample.
+The custom soundtrack is not in it (its player is the port's, not the game's), and online play keeps nothing.
+
 ## Scene export
 
 The picture taken apart (`port/scene.h`, issue #366; the in-game menu's **Game > Scene export** page, every game).
@@ -153,7 +164,11 @@ it covered there in its place. A clip steps frame by frame or plays at 1x to 1/1
 each player's as a layer of their own just in front of that player (with the board's layers, in front of the frontmost
 objects), drawn from `scene.json`'s list, and the readout in front of everything; each can be switched off in the list
 like any layer. A whole stage's layers go back by their parallax pace, so at a spread of 1 moving the camera across it
-gives the game's own parallax. Nothing leaves the browser.
+gives the game's own parallax. **Save 3D model (glTF)** writes what is shown as one `.glb` file for Blender and other
+3D programs: the backdrop, each layer that is on, each object picked out and each overlay as a flat cut-out where it is
+(at the spread chosen), each an object of its own named as in the list, and the camera as it looks; a pixel a
+centimetre, as wide as the page shows it, the pictures unlit and sharp (nearest filtering), see-through pixels cut out
+(a clip's: the frame shown). From its camera, Blender draws the game's picture. Nothing leaves the browser.
 
 **Rapid fire** is the port's own (`rapid_fire`, Game page, every game): a held button is the game's pressed for two
 frames and let go for two, for the first button or for all of them, from the frame it goes down. Movies keep what the

@@ -178,8 +178,8 @@ label.check input { accent-color: var(--marquee); }
   <section>
     <h2>Layers <span class="meta">back to front</span></h2>
     <select id="split" hidden aria-label="How the picture is split">
-      <option value="parts">What's in it: stage, each player, panel</option>
       <option value="layers">The board's layers</option>
+      <option value="parts">What's in it: stage, each player, panel</option>
     </select>
     <ul id="layers"></ul>
   </section>
@@ -235,6 +235,7 @@ label.check input { accent-color: var(--marquee); }
       <button class="primary" id="takeShot">Take photo</button>
     </div>
     <button id="record" title="A clip: once through, at the speed chosen. A scene or stage: eight seconds, turning slowly">Record video</button>
+    <button id="saveModel" title="The layers as flat cut-outs where they are now, each its own object, as one .glb file for Blender and other 3D programs">Save 3D model (glTF)</button>
     <button id="hideUi" title="H">Hide controls (H)</button>
     <button id="reset">Reset options</button>
   </section>
@@ -268,6 +269,7 @@ window.addEventListener('unhandledrejection', (e) => { const p = document.getEle
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
 
 const $ = (id) => document.getElementById(id);
 const FOV = 30;
@@ -472,7 +474,7 @@ async function open(source) {
   W = doc.width; H = doc.height; D = gameDistance();
   clear();
   playing = false; frameAt = 0;
-  // (a fighting game's scene has its parts too, issue #367: those by default, the board's layers when chosen)
+  // (a fighting game's scene has its parts too, issue #367: the board's layers by default, its parts when chosen)
   $('split').hidden = !doc.parts;
   const byParts = doc.parts && $('split').value === 'parts';
   const list = ((byParts ? doc.parts : doc.layers) || []).map((l) => (byParts ? { ...l, kind: 'part' } : l))
@@ -964,14 +966,21 @@ function showPicture(url) {
 }
 
 // A video: the window's picture as it is drawn (the controls hidden meanwhile), as MP4 where the browser makes it, else WebM.
+// (H.264 at a level for a window's size, up to 4K: Baseline's 3.0, 720 x 576 at most, made a Retina window's MP4 nothing in
+// Chrome on a Mac, its encoder giving up)
 // A clip once through from its first frame at the speed chosen; a scene or a stage for eight seconds, turning slowly.
 $('record').onclick = () => {
   if (!layers.length || !window.MediaRecorder) return;
-  const types = ['video/mp4;codecs=avc1.42E01E', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  const types = ['video/mp4;codecs=avc1.640034', 'video/mp4;codecs=avc1.4D0034', 'video/mp4;codecs=avc1.42E034', 'video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
   const type = types.find((t) => MediaRecorder.isTypeSupported(t)) || '';
   const hadUi = !document.body.classList.contains('no-ui');
   const hadSpin = $('spin').checked;
-  document.body.classList.add('no-ui'); resize();
+  document.body.classList.add('no-ui');
+  // (made at most 1080 lines while it records: a Retina window's whole size, 3000 pixels across, is more than the browser's
+  // encoder keeps up with, and the video came out short)
+  const ratioBefore = renderer.getPixelRatio();
+  renderer.setPixelRatio(Math.max(1, Math.min(ratioBefore, 1080 / window.innerHeight, 1920 / window.innerWidth)));
+  resize();
   const stream = renderer.domElement.captureStream(60);
   const recorder = new MediaRecorder(stream, type ? { mimeType: type, videoBitsPerSecond: 16e6 } : { videoBitsPerSecond: 16e6 });
   const chunks = [];
@@ -981,6 +990,7 @@ $('record').onclick = () => {
     $('recording').hidden = true;
     $('spin').checked = hadSpin;
     if (hadUi) document.body.classList.remove('no-ui');
+    renderer.setPixelRatio(ratioBefore);
     resize();
     const blob = new Blob(chunks, { type: recorder.mimeType || 'video/webm' });
     const url = URL.createObjectURL(blob);
@@ -1003,6 +1013,70 @@ $('record').onclick = () => {
     if (kind === 'clip') { playing = false; $('play').textContent = '▶'; }
     recorder.stop();
   }, seconds * 1000 + 100);
+};
+
+// A 3D model: what is shown (the backdrop, each layer on, each object picked out and each overlay) as flat cut-outs where
+// they are now, at the spread chosen, each an object of its own named as in the list, with the camera as it looks now, as
+// one binary glTF (.glb) for Blender and other 3D programs. A pixel is a centimetre (384 x 224 is 3.84 m x 2.24 m), the
+// board's pixels as wide as the page shows them; the pictures are kept sharp (nearest filtering) and unlit, their
+// see-through pixels cut out. A clip's: the frame shown.
+$('saveModel').onclick = async () => {
+  if (!layers.length) return;
+  root.updateMatrixWorld(true);
+  camera.updateMatrixWorld(true);
+  const out = new THREE.Scene();
+  const holder = new THREE.Group();
+  holder.name = kind === 'stage' ? (doc.stage || 'stage') : kind === 'clip' ? `clip frame ${frameAt + 1}` : `scene frame ${doc.frame ?? ''}`;
+  holder.scale.setScalar(0.01);
+  out.add(holder);
+  // (the layers' pictures are decoded upside down, for WebGL, which does not turn an ImageBitmap itself: turned back on a
+  // canvas for the file)
+  const upright = new Map();
+  const fileMap = (map) => {
+    if (!map || !(typeof ImageBitmap !== 'undefined' && map.image instanceof ImageBitmap)) return map;
+    if (!upright.has(map)) {
+      const c = document.createElement('canvas'); c.width = map.image.width; c.height = map.image.height;
+      const g = c.getContext('2d'); g.translate(0, c.height); g.scale(1, -1); g.drawImage(map.image, 0, 0);
+      const t = new THREE.CanvasTexture(c);
+      t.magFilter = t.minFilter = THREE.NearestFilter; t.generateMipmaps = false; t.colorSpace = THREE.SRGBColorSpace;
+      upright.set(map, t);
+    }
+    return upright.get(map);
+  };
+  const add = (mesh, name) => {
+    if (!mesh || !mesh.visible) return;
+    const m = mesh.material;
+    const mat = new THREE.MeshBasicMaterial({ map: fileMap(m.map) || null, color: m.color, side: THREE.DoubleSide,
+      transparent: m.transparent, opacity: m.opacity, alphaTest: m.alphaTest });
+    mat.name = name;
+    const copy = new THREE.Mesh(mesh.geometry, mat);
+    copy.name = name;
+    mesh.matrixWorld.decompose(copy.position, copy.quaternion, copy.scale);
+    holder.add(copy);
+  };
+  add(backdropMesh, 'backdrop');
+  layers.forEach((l) => add(l.mesh, l.info.label || l.info.name));
+  objects.forEach((o, n) => add(o.mesh, `object ${o.info.entry ?? n}`));
+  const cam = new THREE.PerspectiveCamera(camera.fov, camera.aspect, camera.near, camera.far);
+  cam.name = 'camera';
+  camera.matrixWorld.decompose(cam.position, cam.quaternion, cam.scale);
+  cam.scale.set(1, 1, 1);
+  holder.add(cam);
+  cam.near *= 0.01; cam.far *= 0.01;
+  try {
+    const glb = await new GLTFExporter().parseAsync(out, { binary: true });
+    const url = URL.createObjectURL(new Blob([glb], { type: 'model/gltf-binary' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `diorama ${new Date().toISOString().slice(0, 19).replace(/:/g, '.')}.glb`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    $('hint').textContent = 'Saved as a .glb to your downloads: open it in Blender (File > Import > glTF 2.0) or any 3D program.';
+    $('hint').hidden = false;
+  } catch (e) {
+    $('hint').textContent = 'The 3D model could not be made: ' + e.message;
+    $('hint').hidden = false;
+  }
 };
 
 // ---------- the scenes kept in this browser ----------

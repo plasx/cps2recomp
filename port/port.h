@@ -178,6 +178,34 @@ struct Port {
     // Each frame run while recording: its sound (the game's, as heard; and the custom soundtrack's, at its rate) and the
     // picture as screenshots take it, without the port's notices at the bottom
     void VideoFrame(const int16_t *sound, size_t soundFrames, const float *music, size_t musicFrames, int musicRate);
+    // The instant replay (video_record.h): the last seconds of play (the Video page's Replay length) kept as states a
+    // second apart and every frame's controls; Save replay (Alt+Shift+F12) plays them again into a video, a few frames
+    // in each tick beside the game, which goes on as it does. At each kept state the replay is put back to it, so that
+    // whatever a frame run again does differently (a save state loaded, the board reset) lasts a second at most.
+    struct Replay {
+        struct Kept {
+            uint64_t frame = 0;         // (the state before this frame ran)
+            std::vector<uint8_t> state;
+        };
+        struct Input {
+            uint16_t players[cps2recomp::Machine::kMaxPlayers] = {};
+            bool service = false, test = false;
+        };
+        std::deque<Kept> kept;          // (the oldest first)
+        std::deque<Input> inputs;       // (every frame's since the oldest kept)
+        uint64_t inputsFrom = 0;        // (the frame inputs.front() is of)
+        // Being made: the states and controls taken when it was asked for, the replay's own machine and game as a
+        // state between ticks, its next frame and the frame it ends before
+        bool making = false;
+        std::deque<Kept> from;
+        std::vector<Input> made;
+        uint64_t madeFrom = 0, at = 0, end = 0;
+        std::vector<uint8_t> state;
+        VideoRecorder recorder;
+    } replay;
+    void ReplayKeep(const uint16_t *pressed); // (each frame, before it runs)
+    void SaveReplay();
+    void ReplayMake();                        // (each tick: frames of the replay being made)
     // The stage viewer's Save whole stage (fight/alternative.h, StageSweep): its frames stitched (scene.h), each frame
     StageStitch stageStitch;
     void StageSweepFrame();

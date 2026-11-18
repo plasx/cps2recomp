@@ -57,6 +57,11 @@ public:
     const std::string &Path() const {
         return m_path;
     }
+    // Pictures waiting to be encoded: enough that more would be left out soon (the instant replay waits for fewer)
+    bool Busy() {
+        std::lock_guard<std::mutex> hold(m_lock);
+        return m_jobs.size() >= 30;
+    }
     // Not playing in real time (headless, a movie made into a video): the game waits for the encoder rather than
     // pictures being left out
     void SetWaiting(bool waiting) {

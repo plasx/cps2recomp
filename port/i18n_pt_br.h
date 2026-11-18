@@ -862,6 +862,18 @@ inline constexpr recomp::i18n::Entry kPortuguese[] = {
     {"Arcade continue", "Continuar como no arcade"},
     {"Everyone reselects", "Todos escolhem de novo"},
     {"After a versus match, Arcade continue keeps the winning team. Everyone reselects returns both teams to character select. The set keeps its score.", "Depois de uma partida versus, Continuar como no arcade mantém a equipe vencedora. Todos escolhem de novo leva as duas equipes à seleção de personagens. A série mantém o placar."},
+    {"Save replay", "Salvar replay"},
+    {"Saves what was just played, as long as Replay length says, as a video in videos (as Record video's, its sound too): kept all the while, so it needs no recording started. Made beside the game in a few seconds, which goes on meanwhile. Also Alt+Shift+F12.", "Salva o que acabou de ser jogado, pelo tempo que Duração do replay diz, como um vídeo em videos (como o de Gravar vídeo, com o som também): é guardado o tempo todo, então não é preciso começar a gravar. Feito ao lado do jogo em alguns segundos, e o jogo continua enquanto isso. Também Alt+Shift+F12."},
+    {"Replay length", "Duração do replay"},
+    {"How much of what was just played Save replay saves. Kept as a save state every second and the controls of every frame, so a minute of it is a few dozen megabytes of memory. Not online.", "Quanto do que acabou de ser jogado Salvar replay salva. Guardado como um estado a cada segundo e os controles de cada frame, então um minuto são algumas dezenas de megabytes de memória. Não online."},
+    {"60 seconds", "60 segundos"},
+    {"Off", "Desligado"},
+    {"A REPLAY IS STILL BEING SAVED", "UM REPLAY AINDA ESTÁ SENDO SALVO"},
+    {"NOTHING TO REPLAY YET", "AINDA NÃO HÁ NADA PARA O REPLAY"},
+    {"REPLAY LENGTH IS OFF", "A DURAÇÃO DO REPLAY ESTÁ DESLIGADA"},
+    {"REPLAY NOT SAVED", "REPLAY NÃO SALVO"},
+    {"SAVING REPLAY...", "SALVANDO REPLAY..."},
+    {"REPLAY SAVED", "REPLAY SALVO"},
 };
 
 } // namespace port
