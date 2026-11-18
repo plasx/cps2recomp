@@ -57,7 +57,7 @@ used `--watch` for memory writes; that spelling now belongs to online viewing.
 
 Each run compares confirmed state hashes between the machines and against replay of the recorded inputs. It also
 checks controller ownership, names and chat delivery with injected delay, jitter and packet loss. The four-person
-runs enable Cross Fever. With layout `1,1,2`, the final pair receives P3 and P4, because P1 and P2 were already
+runs enable Cross Fever. The following placements assume the default Dreamcast order. With layout `1,1,2`, the final pair receives P3 and P4, because P1 and P2 were already
 assigned; teams remain P1/P3 versus P2/P4. With `1,2,1`, the joining pair receives P2/P4 and the last arrival P3.
 
 Also repeat after menu-hosted disconnects and rejoining, reset/rehost, and ordinary rematches. Check joining and
@@ -162,8 +162,33 @@ spectator-service check passed. These runs used one computer.
 
 | MVC comparison | Animation | Still |
 | --- | --- | --- |
-| One controller per machine across three team layouts | [Follow each controller](screenshots/mvsc/mvc-roster-routing.gif) | [Owner assignments](screenshots/mvsc/mvc-roster-routing.png) |
+| One controller per machine across both four-person orders and both three-person layouts | [Follow each controller](screenshots/mvsc/mvc-roster-routing.gif) | [Owner assignments](screenshots/mvsc/mvc-roster-routing.png) |
 | Who gets a new pick after the same KO and early Start | [Rematch flow](screenshots/mvsc/rematch-selection.gif) | [Four confirmation frames](screenshots/mvsc/rematch-selection.png) |
+
+### Four-player team order
+
+The macOS arm64 interpreter used for the ownership regression had
+`SHA256=42b1ad341bbfd62376a911feef7e0aa7611435f7d2b19a6aa3f42581b41fc604`.
+`check_mvc_team_order.py` cold-boots MVC with four simulated controllers and ordinary inputs in each layout.
+
+| Check | Result |
+| --- | --- |
+| Select each fighter | In both runs the left team confirmed at frames 1,400 and 1,452, and the right team at 1,424 and 1,476. Switching the host rule swapped which people made the middle two picks. |
+| Attack and tag independently | Both orders exercised all six attack buttons on each fighter during 1,021 frames of simultaneous Duo, both expiries, and four isolated normal tags. The previous build failed the paired-order pick at frame 1,448. |
+| Helper selection and calls | Each point owner could confirm their side's helper. A reserve button left the selector waiting. In combat, left and right point MP+MK spent one call on their own team. |
+| Alternate online order with default guest settings | Four local processes matched through 1,495 common confirmed frames. The viewer matched 1,387 frames. Replaying the recorded controls offline reproduced the confirmed hashes. |
+| Mixed local seats | Four people on three processes in a 1,2,1 arrangement matched through 437 frames and the offline replay. |
+| Admission, set results and spectators | All 13 native protocol groups, 46 service tests and the separate spectator service test passed. Alternate rooms refused a previous protocol-11 player and viewer before accepting replacements. In default rooms, matching interpreter runs admitted the previous protocol-11 client in both host directions. |
+
+Use the same build and CPU mode on all playing machines. One mixed run with an earlier translated executable on its
+default CPU and the updated interpreter desynchronized at frame 60. Forcing interpreter execution on those binaries
+gave matching common frames in both default-room host directions. The game signature alone does not guarantee
+equivalence between every CPU configuration. Physical controllers and a four-machine internet set remain to be tested.
+
+```sh
+python3 tools/check_mvc_team_order.py --program build/mvsc/mvsc --rom rom/mvsc
+MVC_TEAM_ORDER=1 PEOPLE=1,1,1,1 GAME=mvsc FIRST_TO=1 MVC_CUSTOM=1 WATCH=1 tools/check_online.sh 1500
+```
 
 ### Choosing a host for four distant players
 

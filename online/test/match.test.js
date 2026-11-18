@@ -194,6 +194,26 @@ test("a legacy host is two players, ignoring each machine's larger people settin
   assert.equal(extra.body.error, "Someone has joined that match already.");
 });
 
+test("alternate four-player order requires capable players and viewers before reservation", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 4, protocol: 11, spectators: true, requiresTeamOrder: true });
+  for (const teamOrder of [undefined, false, "true"]) {
+    const old = await f.join(host.code, 7001, { protocol: 11, teamOrder });
+    assert.equal(old.status, 409);
+    assert.match(old.body.error, /four-player team order/);
+  }
+  const guest = await f.join(host.code, 7001, { protocol: 11, teamOrder: true });
+  assert.equal(guest.status, 200);
+  assert.equal(guest.body.ticket, 1);
+  await f.poll(host, "", true);
+  assert.equal((await f.watch(host.code, { protocol: 11 })).status, 409);
+  assert.equal((await f.watch(host.code, { protocol: 11, teamOrder: true })).status, 200);
+  const saved = await f.env.MATCHES.get(host.code).state.storage.get("match");
+  assert.equal(saved.viewers.length, 1);
+  assert.equal((await f.host({ ...host, players: 4, protocol: 11 })).status, 200);
+  assert.equal((await f.join(host.code, 7001, { protocol: 11 })).status, 200);
+});
+
 // Every machine contributes one or two people. The host is first in each layout.
 for (const [here, ...joiners] of [[1, 1, 1], [2, 1], [1, 2], [1, 1, 1, 1], [1, 1, 2], [1, 2, 1], [2, 1, 1], [2, 2]]) {
   const players = joiners.reduce((total, count) => total + count, here);

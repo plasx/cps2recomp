@@ -82,6 +82,8 @@ function cleanAddresses(list) {
     .slice(0, 8);
 }
 
+const kTeamOrderError = "This match uses an alternate four-player team order. Update your game or ask the host to choose Dreamcast order.";
+
 function cleanText(text) {
   return typeof text === "string" ? text.slice(0, 64) : "";
 }
@@ -296,7 +298,7 @@ export class Match {
       // ticket numbers while this match record exists, or that delayed removal could evict a new arrival.
       const tickets = match ? match.tickets || 0 : 0;
       match = { made: now, generation: crypto.randomUUID(), secret, game: cleanText(body.game), build: cleanText(body.build), host: cleanAddresses(body.addresses), joiners: [],
-                tickets, players, here,
+                tickets, players, here, requiresTeamOrder: players === 4 && body.requiresTeamOrder === true,
                 listed: body.listed === true, name: cleanName(body.name), title: cleanText(body.title), version: cleanText(body.version),
                 protocol, spectators: body.spectators === true, active: false, viewers: [],
                 code: url.searchParams.get("code") || "",
@@ -383,6 +385,9 @@ export class Match {
           cleanText(body.build) !== match.build || Number(body.protocol) !== match.protocol) {
         return json({ error: "Watching needs the same game and build as the players." }, 409);
       }
+      if (match.requiresTeamOrder && body.teamOrder !== true) {
+        return json({ error: kTeamOrderError }, 409);
+      }
       const addresses = cleanAddresses(body.addresses);
       if (!addresses.length) return json({ error: "No viewer address supplied." }, 400);
       match.viewers = (match.viewers || []).filter((v) => now - v.seen < kHere);
@@ -421,6 +426,9 @@ export class Match {
       const players = matchPlayers(match), protocol = Number(body.protocol) || 0;
       if ((protocol || players === 3) && match.protocol && protocol !== match.protocol) {
         return json({ error: "The two copies of the game use different online protocols: use the same release on both." }, 409);
+      }
+      if (match.requiresTeamOrder && body.teamOrder !== true) {
+        return json({ error: kTeamOrderError }, 409);
       }
       // (the people at the joining machine: one in a match of two, whatever it says)
       const people = players > 2 && Number(body.people) === 2 ? 2 : 1;

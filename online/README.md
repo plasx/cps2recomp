@@ -102,6 +102,9 @@ old removal cannot delete a new arrival; a record recreated after expiry has no 
 need a separate generation token to distinguish arbitrarily delayed old requests. The same suite exercises spectator
 admission to full and direct-address four-player matches, token retries and limits, privacy, host/viewer expiry, rehosting, and combined
 active/removal polling. A known mismatched protocol is rejected before reserving a seat; three-person rooms require protocol 11 or later from the host and a matching protocol from each guest.
+
+Four-player MVC rooms using P1/P2 vs P3/P4 require team-order support from players and spectators. A capable client advertises `teamOrder: true`. An alternate-order host registers `requiresTeamOrder: true`. Admission checks this before reserving a seat or viewer. Default-order rooms accept existing matching-protocol clients.
+
 Older two- and four-player rooms retain their missing-protocol behavior. UDP handshakes still enforce the actual protocol.
 
 These are serial service tests. They do not establish Cloudflare scheduling/storage behavior, UDP hole punching,

@@ -309,6 +309,7 @@ private:
     std::map<uint32_t, uint64_t> tickets;
     std::vector<uint32_t> gone;
     std::vector<uint32_t> polledGone; // departures in the outstanding poll; retained in gone until acknowledged
+    bool toldTeamOrder = false; // alternate order announced when registering this code
     int toldPlayers = 0, toldHere = 0; // (hosting: the match's players and the host's, as the service was told them)
     uint64_t punchedAt = 0;
     bool Introduce(uint64_t now, std::string &error);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 // Copyright (C) 2026 Morphus56K and contributors. Part of cps2recomp.
 // ROM-free regression for MVC's Cross Fever gauge clock across board resets and save states.
-// Link with games/mvsc/src/crossfever.cpp. Only the surrounding bus, feature and hook services are stand-ins;
+// Link the production MVC hooks and tag routing. Only the surrounding bus, feature, HUD and hook services are stand-ins;
 // the registered hooks and their state serialization are the game's actual implementation.
 #include "game.h"
 #include "lift.h"
@@ -23,7 +23,7 @@ namespace {
     bool enabled = true, routing = true, earnedMeter = false, arcadeTime = false;
     bool benchTag = false;
     int tauntButton = 0;
-    int soloSide = -1;
+    int teamOrder = 0;
     bool reselect = false;
     tag::Mode teamMode = tag::kVersus;
 
@@ -62,10 +62,15 @@ namespace cps2recomp {
         if (key == "cross_fever_reselect") return reselect;
         return key == "cross_fever" && enabled;
     }
-    int FeatureValue(const char *name) { return std::string(name) == "cross_fever_taunt" ? tauntButton : 0; }
+    int FeatureValue(const char *name) {
+        const std::string key(name);
+        if (key == tag::kFeature) return teamMode;
+        if (key == tag::kTeamOrder) return teamOrder;
+        return key == "cross_fever_taunt" ? tauntButton : 0;
+    }
     uint8_t *Ram(uint32_t address) { return &memory[address & 0xFFFF]; }
     bool BattleMode() { return false; }
-    namespace session { bool InSession() { return false; } }
+    namespace session { bool InSession() { return !routing; } }
     namespace modes {
         bool AttractMode() { return false; }
         bool StageViewer() { return false; }
@@ -74,13 +79,9 @@ namespace cps2recomp {
     void AddHook(uint32_t address, const char *, HookFn fn) {
         Require(hooks.emplace(address, fn).second, "duplicate hook address");
     }
-    namespace tag {
-        void Register(const Description &) {}
-        bool Routing() { return routing; }
-        Mode Chosen() { return teamMode; }
-        int Person(int side, int pick) { return side == soloSide ? side : side + 2 * pick; }
-        uint16_t Held(int) { return 0; }
-    }
+    static std::vector<HudLine> testHud;
+    void SetHud(std::vector<HudLine> lines) { testHud = std::move(lines); }
+    const std::vector<HudLine> &Hud() { return testHud; }
     uint32_t M68K::Read(uint32_t address, unsigned size) {
         uint32_t value = 0;
         for (unsigned n = 0; n < (1u << size); n++) {
@@ -290,7 +291,31 @@ namespace {
         reselect = false;
     }
 
-    void PartnerTagRequests() {
+    void TeamOrder() {
+        struct Layout {
+            tag::Mode mode;
+            std::array<int, 4> owners;  // left picks, then right picks
+        };
+        const Layout layouts[] = {{tag::kOff, {0, -1, 1, -1}}, {tag::kCoop, {0, 1, -1, -1}},
+                                  {tag::kVersus, {0, 2, 1, 3}}, {tag::kTwoVsOne, {0, 2, 1, 1}},
+                                  {tag::kOneVsTwo, {0, 0, 1, 2}}};
+        for (int order : {0, 1, 2}) {
+            teamOrder = order;
+            for (const auto &layout : layouts) {
+                teamMode = layout.mode;
+                auto wanted = layout.owners;
+                if (teamMode == tag::kVersus && order == 1) wanted = {0, 1, 2, 3};
+                for (int slot = 0; slot < 4; ++slot)
+                    Require(TheGame().matchOwner(slot / 2, slot % 2) == wanted[slot],
+                            "roster and game must agree on the physical player for each fighter");
+            }
+        }
+        teamOrder = 0;
+        teamMode = tag::kVersus;
+    }
+
+    void PartnerTagRequests(int order) {
+        teamOrder = order;
         ClearOldState();
         Boot();
         SetRam16(mvsc::kGameStep, mvsc::kGameMatch);
@@ -310,8 +335,9 @@ namespace {
             Require(!hooks.at(0x01945C)(cpu), "native tag eligibility and BNE must run");
             return !cpu.flagZ && cpu.d[0] == 1;
         };
+        const int benches[2] = {order == 1 ? 1 : 2, 3};
         for (int side : {0, 1}) {
-            const int person = side + 2;
+            const int person = benches[side];
             benchTag = false;
             pulse(person, chord);
             Require(!requested(side), "default Point accepted bench tag");
@@ -332,9 +358,9 @@ namespace {
             Require(requested(side), "opponent Duo suppressed team tag");
             SetRam8(mvsc::kDuoOn, 0);
             pulse(person, chord);
-            soloSide = side;
+            teamMode = side == 0 ? tag::kOneVsTwo : tag::kTwoVsOne;
             Require(!requested(side), "solo team used partner override");
-            soloSide = -1;
+            teamMode = tag::kVersus;
             std::vector<uint8_t> bytes;
             Archive save(bytes, true);
             CrossFeverState(save);
@@ -351,6 +377,7 @@ namespace {
             Require(!requested(side), "held chord survived board reset");
         }
         benchTag = false;
+        teamOrder = 0;
     }
 } // namespace
 
@@ -445,8 +472,17 @@ int main() {
         earnedMeter = arcadeTime = false;
         StateVersions();
         ReselectRules();
-        PartnerTagRequests();
-        std::cout << "PASS: Cross Fever reset, clock, ownership and legacy/current marked states\n";
+        TeamOrder();
+        PartnerTagRequests(0);
+        PartnerTagRequests(1);
+        // A saved or CLI setting for MVC must never reorder another game's Tag team.
+        TheGame().features.clear();
+        tag::Register({});
+        teamMode = tag::kVersus;
+        teamOrder = 1;
+        Require(tag::Person(0, 1) == 2 && tag::Person(1, 0) == 1, "other game adopted MVC team order");
+        Require(TheGame().features.size() == 1, "other game advertised an unimplemented team order");
+        std::cout << "PASS: Cross Fever reset, clock, team order, ownership and legacy/current marked states\n";
     } catch (const std::exception &error) {
         std::cerr << "FAIL: " << error.what() << '\n';
         return 1;

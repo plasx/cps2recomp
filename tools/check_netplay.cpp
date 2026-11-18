@@ -20,9 +20,10 @@ void Require(bool condition, const std::string &message) {
 // consulting game features or discovering external interfaces; no game state or service is needed here.
 namespace cps2recomp {
 Game &TheGame() { static Game game; return game; }
-int testTagMode = -1;
+int testTagMode = -1, testTeamOrder = 0;
 int FeatureValue(const char *name) {
     if (!strcmp(name, tag::kFeature) && testTagMode >= 0) return testTagMode;
+    if (!strcmp(name, tag::kTeamOrder)) return testTeamOrder;
     throw std::runtime_error("unexpected game feature lookup");
 }
 }
@@ -270,11 +271,8 @@ struct NetplayTest {
         }
     }
 
-    static void Rosters() {
-        const std::vector<std::vector<std::vector<int>>> expected = {
-            {{0, 2}, {1}, {3}}, {{0}, {1, 3}, {2}}, {{0}, {1}, {2, 3}},
-            {{0}, {1}, {2}, {3}}, {{0, 2}, {1, 3}},
-        };
+    using RoomLayouts = std::vector<std::vector<std::vector<int>>>;
+    static void CheckRosters(const RoomLayouts &expected) {
         for (const auto &seats : expected) {
             Netplay host(Settings(true));
             host.needed = 4;
@@ -313,6 +311,54 @@ struct NetplayTest {
                 Require(reader.ok && reader.at == reader.end, "malformed start roster");
             }
         }
+    }
+
+    static void Rosters() {
+        CheckRosters({{{0, 2}, {1}, {3}}, {{0}, {1, 3}, {2}}, {{0}, {1}, {2, 3}},
+                      {{0}, {1}, {2}, {3}}, {{0, 2}, {1, 3}}});
+    }
+
+    static void AlternateTeamOrder() {
+        const auto previous = TheGame();
+        auto client = Netplay(Settings(false));
+        client.Hello();
+        const size_t oldSize = client.greeting.size();
+        tag::Description description;
+        description.teamOrder = description.threePlayers = true;
+        tag::Register(description);
+        testTagMode = tag::kVersus;
+        client.Hello();
+        Require(client.greeting.size() == oldSize + 1 && client.greeting.back() == kTeamOrderCapability,
+                "new guests must advertise the alternate order even if their own preference is the default");
+        Require(!NeedsTeamOrder(4), "default room required a new guest");
+        testTeamOrder = 1;
+        Require(NeedsTeamOrder(4) && !NeedsTeamOrder(3) && !NeedsTeamOrder(2), "capability must only be required in a four-human alternate room");
+        CheckRosters({{{0}, {1}, {2}, {3}}, {{0, 1}, {2, 3}}, {{0, 1}, {2}, {3}},
+                      {{0}, {2, 3}, {1}}, {{0}, {1}, {2, 3}}});
+
+        Netplay host(Settings(true));
+        host.needed = 4;
+        UdpSocket socket;
+        ConnectReceiver(host, socket);
+        auto options = Settings(false);
+        options.watching = true;
+        Netplay viewer(options);
+        viewer.Hello();
+        auto hello = viewer.greeting;
+        Require(hello.back() == kTeamOrderCapability, "viewers must advertise the alternate order");
+        hello.pop_back(); // a previous build used this exact packet
+        const auto &from = host.links[0].address;
+        host.WatchPacket(hello.data(), hello.size(), from);
+        Require(host.viewers.empty() && Receive(socket, 1)[0][4] == kRefuse, "older viewer entered an alternate-order match");
+        host.WatchPacket(viewer.greeting.data(), viewer.greeting.size(), from);
+        Require(host.viewers.size() == 1, "matching viewer could not watch an alternate-order match");
+        host.viewers.clear();
+        testTeamOrder = 0;
+        host.WatchPacket(hello.data(), hello.size(), from);
+        Require(host.viewers.size() == 1, "default layout refused an older viewer");
+
+        testTagMode = -1;
+        TheGame() = previous;
     }
 
     static void AsymmetricRosters() {
@@ -503,6 +549,7 @@ struct NetplayTest {
         host.setAgreed = NowMs() - 2001;
         Require(!host.Ready(5001) && host.SetFinished() && !host.failed && !host.lost && !host.left,
                 "agreed host set failed to finish normally");
+        Require(host.ended == "Left team wins the FT5 set (5-2).", "winning team was reported as a single player");
 
         Netplay client(Settings(false));
         client.links.resize(1);
@@ -519,6 +566,15 @@ struct NetplayTest {
         Writer bye(kBye);
         client.Take(client.links[0], bye.out.data(), bye.out.size());
         Require(client.SetFinished() && !client.lost && !client.failed, "host departure masked an agreed set result");
+
+        for (int people : {2, 3, 4}) {
+            Netplay right(Settings(false));
+            right.needed = people;
+            right.set.Load({5, 1, 2, 5, 0, 0, 0, 0, 1, 5000});
+            right.FinishSet();
+            const std::string expected = people == 2 ? "Player 2" : "Right team";
+            Require(right.ended == expected + " wins the FT5 set (2-5).", "right-hand winner was attributed to the wrong player");
+        }
 
         // Agreement belongs to this link's exact score and this Netplay session, not any later result.
         Netplay changed(Settings(false));
@@ -680,6 +736,7 @@ struct NetplayTest {
                  {"departure transmission and failed-service retry", DepartureTransmission},
                  {"five mixed-machine rosters and start packets", Rosters},
                  {"both three-human formats across all three machine layouts", AsymmetricRosters},
+                 {"alternate four-player teams, paired seats and legacy spectators", AlternateTeamOrder},
                  {"four input streams, retransmission, relay and bounded prediction", FourStreamControls},
                  {"reordered timing samples, clock wrap and simulated delivery order", TimingSamples},
                  {"all-machine first-to consensus and score mismatch", FirstToConsensus},

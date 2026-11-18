@@ -101,6 +101,6 @@ check-crossfever-reset:
 	@mkdir -p build/checks
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -Wno-unused-parameter \
 		-Iruntime -Ifight -Imachine -Ivideo -Isound -Igames/mvsc/src \
-		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp games/mvsc/src/tag.cpp \
+		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp games/mvsc/src/tag.cpp fight/tag.cpp \
 		-o build/checks/crossfever-reset
 	@build/checks/crossfever-reset

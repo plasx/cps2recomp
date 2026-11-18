@@ -130,10 +130,9 @@ modes page (or the launcher's Features page) chooses how.
 | Co-op vs. computer | Players 1 and 2 are one team against the computer. Either one's Start begins the game on player 1's side; nobody can come in on the computer's side |
 | 2 vs 1 | P1 and P3 play the left team. P2 chooses and controls both right-side fighters. |
 | 1 vs 2 | P1 controls both left-side fighters. P2 and P3 play the right team. |
-| 2 vs 2 | Four players: 1 and 3 are one team, 2 and 4 the other. Either person of a team can Start (or continue) for it |
+| 2 vs 2 | Four players. **Four-player team order** defaults to P1/P3 vs P2/P4. Choose **P1/P2 vs P3/P4** to put P1 and P2 on the left. Either teammate can Start or continue for that side. |
 
-- **Choosing**: the team's first character is chosen by its first person (player 1 or 2), the second by its partner
-  (P2 in co-op, P3 or P4 on a split versus team). A solo owner chooses both fighters. Only the person choosing moves the cursor.
+- **Choosing**: the first person on each team chooses its first fighter, then the partner chooses the second. In the P1/P2 vs P3/P4 order, P1 and P3 choose first. A solo owner chooses both fighters. Only the person choosing moves the cursor.
 - **Fighting**: the controls are whoever plays the character on point. The partner tags in by pressing a strong
   punch and a strong kick together; the one on point can still tag out the same way, and team supers work as on the
   board. A knock-out, a tag or a team super changes who is on point exactly when the game does.

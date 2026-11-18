@@ -77,9 +77,10 @@ hosting. Every machine with one player selects **People at this machine → 1**,
 | 2 on the same team | Co-op vs. computer | P1 and P2 | CPU |
 | 3 | 2 vs 1 | P1 and P3 | P2 owns both |
 | 3 | 1 vs 2 | P1 owns both | P2 and P3 |
-| 4 | 2 vs 2 | P1 and P3 | P2 and P4 |
+| 4 | 2 vs 2 · P1/P3 vs P2/P4 (default) | P1 and P3 | P2 and P4 |
+| 4 | 2 vs 2 · P1/P2 vs P3/P4 | P1 and P2 | P3 and P4 |
 
-P1 and P2 began as the two opposing arcade starters. In four-player rooms, P3 takes the left partner and P4 the right partner. Tags swap the active fighter, while each person keeps their assigned fighter in Cross Fever. [Illustrated layouts](screenshots/mvsc/mvc-roster-routing.png).
+In the Dreamcast order, P1 and P2 are the opposing arcade starters, and P3 and P4 join them. To put the first two people together, choose **Tag team → 2 vs 2**, then **Four-player team order → P1/P2 vs P3/P4** before hosting. P1 picks first on the left and P3 picks first on the right. P2 and P4 choose their respective partners. This works in classic Tag team and in Cross Fever. [Illustrated layouts](screenshots/mvsc/mvc-roster-routing.png).
 
 Player numbers above assume one controller per machine. With three humans on two machines, the two at one
 machine receive the split team, including when the solo owner hosts. Set **Cross Fever → On** for independent
@@ -93,12 +94,12 @@ For Marvel vs. Capcom's Cross Fever, each person runs the game on their own mach
 and switches **Cross Fever** on before hosting; the joining machines take those choices from the host.
 
 The host is P1. The other three join the same code or host address, becoming P2, P3 and P4 in arrival order.
-The match starts when all four are present. Teams are **P1 + P3 versus P2 + P4**. Each person chooses their assigned
+The match starts when all four are present. The host chooses the teams. Each person chooses their assigned
 fighter on the arcade selection screen and controls that fighter independently during a Duo Team Attack.
 
 ![Architecture diagram: four separate computers, each with one six-button controller. P1 hosts three bidirectional input links to P2, P3 and P4. Teams are P1/P3 versus P2/P4; all four computers run the full match.](diagrams/mvsc-four-machines.svg)
 
-*Input routing diagram. [Figure notes and design references](diagrams/README.md).*
+*Input routing diagram for the default Dreamcast team order. [Figure notes and design references](diagrams/README.md).*
 
 CPS2Recomp implements rollback in its own `port/netplay.cpp`. The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
 other players' inputs. Every machine runs the game and rollback. The introduction service finds the host; it does
@@ -159,8 +160,7 @@ A strip at the top shows the two sides around the score (`2 FT5 1`). A game coun
 not a draw, not a fight with the computer, and only once the games have the real controls for it (a guess that a
 rollback replaced never counts). When a side reaches five (or ten), the playing machines agree on the score, show
 the winner for two seconds and close, back to the launcher; host again there for a new set. A dropped connection ends the set
-unfinished, and coming back starts the score over. In a four-person match the score belongs to teams P1/P3 and
-P2/P4, not to each controller separately. Nothing is kept or ranked.
+unfinished, and coming back starts the score over. In a four-person match each side keeps one score for its two teammates under either team order. Nothing is kept or ranked.
 
 From a terminal, `--features online_set=1` is FT5 and `online_set=2` FT10, on the host:
 

@@ -75,8 +75,9 @@ void RegisterTag() {
     AddHook(HookAt(0x00BD28), "TagFirstPick", FirstPick);
     tag::Description d;
     d.threePlayers = true;
-    d.help = "Co-op pairs P1 and P2 against the computer. In versus, P1 starts left and P2 right. "
-             "2 vs 2 pairs P1/P3 against P2/P4. With three people, P3 takes the second fighter on the left "
+    d.teamOrder = true;
+    d.help = "Co-op pairs P1 and P2 against the computer. In 2 vs 2, Four-player team order chooses the teammates. "
+             "With three people, P3 takes the second fighter on the left "
              "(2 vs 1) or right (1 vs 2). The solo player chooses and plays both fighters. HP+HK tags. "
              "Turn on Cross Fever for independent teammate controls during Duo.";
     d.onPoint = [](int side) { return Ram8(kPlaying) != 0 && Ram16(kGameStep) == kGameMatch ? TagPick(Player(side)) : -1; };

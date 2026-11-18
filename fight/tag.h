@@ -3,7 +3,8 @@
 //
 // Tag-team play for more people than the board's two panels: each character of a team played by a person of its own,
 // in the tag-team Vs games. "Co-op vs. computer": players 1 and 2 are one team (player 1's side), against the computer.
-// "2 vs 2": players 1 and 3 against players 2 and 4. Where three-player matches are enabled, P3 takes
+// "2 vs 2": players 1 and 3 against players 2 and 4 by default. With team order enabled, a game can also group
+// P1 and P2 against P3 and P4. Where three-player matches are enabled, P3 takes
 // the second fighter on the side with two people. The solo player owns both fighters on the other side.
 //
 // The game reads only players 1 and 2, so this routes: each frame, before the game runs, it decides whose controls
@@ -33,6 +34,7 @@
 namespace cps2recomp::tag {
 
 constexpr const char *kFeature = "tag_team";
+constexpr const char *kTeamOrder = "tag_team_order";
 enum Mode { kOff, kCoop, kVersus, kTwoVsOne, kOneVsTwo };
 
 struct Description {
@@ -54,6 +56,7 @@ struct Description {
     // What the menu says of the modes (nullptr: as for a tag-team Vs game), and the page they are on (nullptr: the
     // Alternative modes page)
     const char *help = nullptr, *page = nullptr;
+    bool teamOrder = false; // Offer a second seat order for four-human versus.
     bool threePlayers = false; // The game supports a solo player owning both fighters against two independent owners.
 };
 

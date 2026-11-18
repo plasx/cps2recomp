@@ -3046,7 +3046,11 @@ void Port::Streaks() {
         streak[winner]++;
         streak[1 - winner] = 0;
         roundsWon[0] = roundsWon[1] = 0;
-        fprintf(stderr, "online: player %d won the match (%d in a row)\n", winner + 1, streak[winner]);
+        if (net->Players() > 2) {
+            fprintf(stderr, "online: %s team won the match (%d in a row)\n", winner ? "right" : "left", streak[winner]);
+        } else {
+            fprintf(stderr, "online: player %d won the match (%d in a row)\n", winner + 1, streak[winner]);
+        }
     }
 }
 

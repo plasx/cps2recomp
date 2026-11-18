@@ -27,6 +27,7 @@
 # PEOPLE lists the people at each machine in arrival order, host first (1,2,1 or 1,1,2 also test a joining pair).
 # With three people use PEOPLE=1,1,1, 2,1 or 1,2 and TAG_TEAM=3 (2 vs 1) or 4 (1 vs 2).
 # NET_PROFILES lists one outgoing MS:JITTER:LOSS profile per machine, host first. NET_DELAY chooses host delay.
+# MVC_TEAM_ORDER=0|1 tests Dreamcast or adjacent teammates with four MVC players. Guests start with the opposite preference.
 # MVC_CUSTOM=1 exercises the alternative Cross Fever rules on the host and in the offline replay.
 # FIRST_TO=0|1|2 checks the host's Casual/FT5/FT10 choice against different choices on all joining machines.
 # WATCH=1 adds a viewer after play starts and compares its confirmed frame hashes with the host's.
@@ -127,6 +128,15 @@ if [ "${MVC_CUSTOM:-0}" = 1 ]; then
         echo "MVC_CUSTOM=1 needs an MVC versus layout with three or four people"; exit 1
     fi
     play="$play,cross_fever_earned_meter=1,cross_fever_arcade_time=1,cross_fever_partner_tag=1,cross_fever_taunt=2,cross_fever_reselect=1"
+fi
+team_order=${MVC_TEAM_ORDER:-}
+if [ -n "$team_order" ]; then
+    case "$team_order" in 0|1) ;; *) echo "MVC_TEAM_ORDER must be 0 or 1"; exit 1 ;; esac
+    if [ "$GAME" != mvsc ] || [ "$tag_mode" != 2 ]; then
+        echo "MVC_TEAM_ORDER requires four people in MVC"; exit 1
+    fi
+    play="$play,tag_team_order=$team_order"
+    guest_set="${guest_set:+$guest_set,}tag_team_order=$((1 - team_order))"
 fi
 # (the match has them but for the cheats, which are off on all sides: the replay is given the same)
 cheats=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$2=="Cheats" {print $1}')
@@ -254,11 +264,31 @@ case "$layout" in
         esac
         [ "$layout" = 2,1 ] && players="$players, player 3 Host P1" || players="$players, player 3 Joiner" ;;
     1,1) players="player 1 Host P1, player 2 Joiner" ;;
-    2,2) players="player 1 Host P1, player 2 Joiner, player 3 Host P1, player 4 Joiner" ;;
-    2,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Host P1, player 4 Joiner 2" ;;
-    1,2,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 1" ;;
-    1,1,2) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 2" ;;
-    1,1,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 3" ;;
+    *)
+        # Controller numbers for each machine, in join order. Check names and local assignments from the same fixture.
+        case "$layout/${team_order:-0}" in
+            2,2/0) seats=(13 24) ;;       2,2/1) seats=(12 34) ;;
+            2,1,1/0) seats=(13 2 4) ;;    2,1,1/1) seats=(12 3 4) ;;
+            1,2,1/0) seats=(1 24 3) ;;    1,2,1/1) seats=(1 34 2) ;;
+            1,1,2/*) seats=(1 2 34) ;;
+            1,1,1,1/*) seats=(1 2 3 4) ;;
+        esac
+        machine=0
+        where=""
+        for name in host $joiners; do
+            which=${seats[$machine]}
+            first=${which:0:1}
+            seat_names[$first]="$(named "$name")"
+            who="player $first"
+            if [ "${#which}" = 2 ]; then
+                second=${which:1:1}
+                seat_names[$second]="$(named "$name")"
+                who="players $first and $second"
+            fi
+            where="${where:+$where,}$name=$who"
+            machine=$((machine + 1))
+        done
+        players="player 1 ${seat_names[1]}, player 2 ${seat_names[2]}, player 3 ${seat_names[3]}, player 4 ${seat_names[4]}" ;;
 esac
 for name in host $joiners; do
     if ! grep -Eq "^online: the match is on: .* \($host_delay frames? of delay\)$" "$work/online-$name.err"; then
@@ -271,20 +301,16 @@ for name in host $joiners; do
             case ",$rules," in *",$rule,"*) ;; *) echo "FAILED: $name did not take $rule"; status=1 ;; esac
         done
     fi
+    if [ -n "$team_order" ]; then
+        rules=$(sed -n 's/^online: settled match rules //p' "$work/online-$name.err" | head -1)
+        case ",$rules," in *",tag_team_order=$team_order,"*) ;; *) echo "FAILED: $name did not take team order $team_order"; status=1 ;; esac
+    fi
     if ! grep -qxF "online: $players" "$work/online-$name.err"; then
         echo "FAILED: the $name doesn't have every player's name ($players)"
         status=1
     fi
 done
 if [ -n "$four" ]; then
-    # (the four at their machines: each machine's players as said)
-    case "$layout" in
-        2,2) where="host=players 1 and 3,join=players 2 and 4" ;;
-        2,1,1) where="host=players 1 and 3,join1=player 2,join2=player 4" ;;
-        1,2,1) where="host=player 1,join1=players 2 and 4,join2=player 3" ;;
-        1,1,2) where="host=player 1,join1=player 2,join2=players 3 and 4" ;;
-        1,1,1,1) where="host=player 1,join1=player 2,join2=player 3,join3=player 4" ;;
-    esac
     placed=1
     IFS=, read -ra items <<< "$where"
     for item in "${items[@]}"; do

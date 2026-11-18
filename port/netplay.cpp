@@ -18,6 +18,7 @@
 
 #include "game_info.h"
 #include "../fight/battle.h"
+#include "../fight/tag.h"
 #include "../recomp-common/i18n.h"
 #include "../recomp-common/launcher/src/online.h"
 #include "../recomp-common/launcher/src/run_program.h"
@@ -54,6 +55,14 @@ namespace {
     uint64_t NowMs() {
         return static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+    }
+
+    // A trailing hello byte only when the game's build can run the alternate four-player layout.
+    // Previous builds finish parsing at the ticket (or spectator token), so default rooms interoperate.
+    constexpr uint8_t kTeamOrderCapability = 1;
+    constexpr const char *kTeamOrderError = "This match uses an alternate four-player team order. Update your game or ask the host to choose Dreamcast order.";
+    bool NeedsTeamOrder(int players) {
+        return players == 4 && HasFeature(tag::kTeamOrder) && FeatureValue(tag::kTeamOrder) == 1;
     }
 
     // The packets: "C2NP", what kind, then the kind's fields, little-endian
@@ -689,6 +698,7 @@ void Netplay::Hello() {
         hello.U8(static_cast<uint8_t>(PeopleHere()));
         hello.U32(ticket);
     }
+    if (HasFeature(tag::kTeamOrder)) hello.U8(kTeamOrderCapability);
     greeting = hello.out;
 }
 
@@ -966,10 +976,13 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
             // (the players the match is for, and the host's: the service lets in as many more as there is room for)
             toldPlayers = needed;
             toldHere = people;
+            toldTeamOrder = NeedsTeamOrder(needed);
+            if (toldTeamOrder) listed += ",\"requiresTeamOrder\":true";
             const std::string players = ",\"players\":" + std::to_string(needed) + ",\"here\":" + std::to_string(people);
             ask("POST", "/v1/host", "{" + again + about + listed + players + (settings.spectators ? ",\"spectators\":true" : "") + ",\"addresses\":" + Addresses() + "}");
         } else {
-            ask("POST", std::string(settings.watching ? "/v1/watch/" : "/v1/join/") + joinCode, "{" + about + ",\"people\":" + std::to_string(PeopleHere()) + ",\"addresses\":" + Addresses() + "}");
+            const std::string capability = HasFeature(tag::kTeamOrder) ? ",\"teamOrder\":true" : "";
+            ask("POST", std::string(settings.watching ? "/v1/watch/" : "/v1/join/") + joinCode, "{" + about + capability + ",\"people\":" + std::to_string(PeopleHere()) + ",\"addresses\":" + Addresses() + "}");
         }
         intro = Intro::Asking;
         return true;
@@ -995,10 +1008,6 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
         if (answer.status == 200) {
             if (settings.watching) {
                 watchToken = JsonText(answer.body, "token");
-                Writer hello(kWatchHello);
-                hello.U16(kProtocol); hello.Text(GAME_ID); hello.U32(build);
-                hello.Text(RECOMP_VERSION); hello.Text(settings.name); hello.Text(watchToken);
-                greeting = hello.out;
             }
             for (const std::string &text : JsonList(answer.body, "addresses")) {
                 NetAddress to;
@@ -1086,7 +1095,7 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
         }
         // (the match's players or the host's changed while nobody had come (hosting while playing): the service told
         // again, with the same code)
-        if (links.empty() && (toldPlayers != needed || toldHere != people)) {
+        if (links.empty() && (toldPlayers != needed || toldHere != people || toldTeamOrder != NeedsTeamOrder(needed))) {
             settings.renewCode = code.substr(0, 3) + code.substr(4);
             settings.renewSecret = secret;
             tickets.clear();
@@ -1143,6 +1152,7 @@ int Netplay::Waiting(Port &port, std::string &error) {
                 const std::string name = in.Text();
                 const int theirPeople = std::clamp<int>(in.U8(), 1, kMostSeats);
                 const uint32_t theirTicket = in.U32();
+                const uint8_t capabilities = in.at == in.end ? 0 : in.U8();
                 // (in a match of two, one at each machine, whatever the other machine's People at this machine says)
                 const int bringing = needed > 2 ? theirPeople : 1;
                 std::string why;
@@ -1154,6 +1164,10 @@ int Netplay::Waiting(Port &port, std::string &error) {
                     why = "The other player started " + game + ", this side " GAME_ID ".";
                 } else if (theirs != build) {
                     why = "The two copies of the game are different builds: use the same release on both.";
+                } else if (!in.ok) {
+                    continue;
+                } else if (NeedsTeamOrder(needed) && !(capabilities & kTeamOrderCapability)) {
+                    why = kTeamOrderError;
                 } else if (!link && Wanted() == 0) {
                     why = needed > 2 ? "That match is full." : "Someone has joined that match already.";
                 } else if (!link && bringing > Wanted()) {
@@ -2247,7 +2261,9 @@ bool Netplay::SetAgrees() const {
 void Netplay::FinishSet() {
     setFinished = true;
     left = lost = false;
-    ended = "Player " + std::to_string(set.Winner() + 1) + " wins the FT" + std::to_string(set.Target()) +
+    const std::string winner = needed > 2 ? (set.Winner() == 0 ? "Left team" : "Right team")
+                                          : "Player " + std::to_string(set.Winner() + 1);
+    ended = winner + " wins the FT" + std::to_string(set.Target()) +
             " set (" + std::to_string(set.Score(0)) + "-" + std::to_string(set.Score(1)) + ").";
 }
 
@@ -2304,11 +2320,16 @@ void Netplay::WatchPacket(const uint8_t *data, size_t size, const NetAddress &fr
         const std::string version = in.Text();
         in.Text(); // viewers do not take a player name or enter player chat
         const std::string token = in.Text();
+        const uint8_t capabilities = in.at == in.end ? 0 : in.U8();
         const bool invited = settings.service == "off" || std::any_of(invitedViewers.begin(), invitedViewers.end(),
             [&](const auto &v) { return v.first == token && v.second == from; });
         if (!in.ok || !invited || token.empty() || token.size() > 64) return;
         if (protocol != kProtocol || game != GAME_ID || theirs != build || version != RECOMP_VERSION) {
             Writer refuse(kRefuse); refuse.Text("Watching needs the same game and build as the players.");
+            SendTo(from, refuse.out); return;
+        }
+        if (NeedsTeamOrder(needed) && !(capabilities & kTeamOrderCapability)) {
+            Writer refuse(kRefuse); refuse.Text(kTeamOrderError);
             SendTo(from, refuse.out); return;
         }
         if (foundViewer == viewers.end()) {

@@ -59,6 +59,7 @@ int Person(int side, int pick) {
     case kCoop:
         return side == 0 ? pick : -1;
     case kVersus:
+        if (g_d.teamOrder && FeatureValue(kTeamOrder) == 1) return 2 * side + pick;
         return side + 2 * pick;
     case kTwoVsOne:
         return side == 0 && pick == 1 ? 2 : side;
@@ -147,6 +148,12 @@ void Register(const Description &description) {
         auto &choices = TheGame().features.back().choices;
         choices.push_back("2 vs 1");
         choices.push_back("1 vs 2");
+    }
+    if (g_d.teamOrder) {
+        TheGame().features.push_back({kTeamOrder, g_d.page ? g_d.page : modes::kModes, "Four-player team order",
+                                      "Choose the teammates for 2 vs 2. The first player on each side chooses first. "
+                                      "The Dreamcast order is P1/P3 vs P2/P4.",
+                                      kFeatureMatch | kFeatureOwn, {"P1/P3 vs P2/P4", "P1/P2 vs P3/P4"}});
     }
     TheGame().matchPlayers = [] {
         const Mode mode = Chosen();

@@ -5,6 +5,7 @@
 - **Marvel vs. Capcom** now offers three-human Tag team on either side. In Cross Fever the host can choose earned
   meter, arcade Duo length, who can request a tag, the Dreamcast taunt chord and whether both teams reselect for a rematch. Starting a fresh board clears
   both teams' previous starting order. [Controls and Dreamcast comparison](games/mvsc/CROSS_FEVER.md).
+- **Four-player team order** in MVC lets the host put P1/P2 on the left against P3/P4 in classic Tag team or Cross Fever. Dreamcast order (P1/P3 vs P2/P4) is the default.
 - **Controllers** keep their player numbers when another pad disconnects. A returning pad reclaims its former slot when the system can identify it.
 - **Online play** keeps late inputs while ignoring obsolete clock estimates. The match log shows the RTT of
   each direct link and separates prediction waits from clock pacing. The in-game host can choose input delay and

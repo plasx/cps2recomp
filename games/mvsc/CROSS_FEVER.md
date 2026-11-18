@@ -20,7 +20,7 @@ port. It switches the shared arcade panel to the person whose fighter is on poin
 per-fighter Cross Fever input path and extended the project's UDP rollback to four participating machines.
 Tommy's later **Tag team battle** is an alternative mode for two online players in games that register
 it, including Street Fighter Alpha 2. MVC uses the arcade game's own tag combat. Choose MVC's **Tag team**
-layout before hosting. In classic 2 vs 2, control follows the point fighter. Enabling **Cross Fever** gives
+layout before hosting. For a four-person match, the default keeps the Dreamcast's P1/P3 versus P2/P4. The host can select P1/P2 versus P3/P4 for adjacent teammates. In classic 2 vs 2, control follows the point fighter. Enabling **Cross Fever** gives
 each split-team owner independent control during a Duo. The separate [input fix in #413](https://github.com/tmcleroy/cps2recomp/pull/413)
 covers a reserve player's tag chord combining with a point player's quarter-circle in classic MVC 2 vs 2.
 [Original Tag team](https://github.com/tmcleroy/cps2recomp/commit/ad2fd20)
