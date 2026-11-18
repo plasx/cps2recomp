@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Marvel vs. Capcom** now offers three-human Tag team on either side. In Cross Fever the host can choose earned
+  meter, arcade Duo length, who can request a tag, the Dreamcast taunt chord and whether both teams reselect for a rematch. Starting a fresh board clears
+  both teams' previous starting order. [Controls and Dreamcast comparison](games/mvsc/CROSS_FEVER.md).
+- **Controllers** keep their player numbers when another pad disconnects. A returning pad reclaims its former slot when the system can identify it.
+- **Online play** keeps late inputs while ignoring obsolete clock estimates. The match log shows the RTT of
+  each direct link and separates prediction waits from clock pacing. The in-game host can choose input delay and
+  an unlisted match. Player names, streak, ping and delay have local display switches. Protocol 11 adds three-person
+  admission. [Hosting](docs/ONLINE.md).
+
 - **Super resolution at 240 lines**: where the screen has no super resolution of 224 lines (CRT Emudriver's sets on some
   cards go no lower than 240p), the Arcade monitor's **Super resolution** uses one of 240 lines and 1920 or more
   columns, 2560 x 240 say, with the picture's 224 lines one for one in its middle and 8 black lines above and below.

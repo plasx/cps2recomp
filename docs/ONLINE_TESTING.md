@@ -64,6 +64,92 @@ Also repeat after menu-hosted disconnects and rejoining, reset/rehost, and ordin
 all six attack buttons for each owner, tags, simultaneous Duo, expiry and KO. Synthetic inputs and local processes
 do not establish physical-controller or real internet acceptance.
 
+## Reproducing the November 18 playtest
+
+A community playtest of 1.6.0-beta.2 reached a four-player fight across four countries. Participants reported that
+changing host affected playability. A separate connection attempt failed during the router handshake. A screenshot
+showed the online labels covering the native helper count; another showed the host configuration with Cross Fever off.
+The sessions lacked synchronized logs from all four machines. They establish neither the failing network leg nor a
+Cross Fever-on ownership fault.
+
+Use a build from the same revision on **all machines**. The startup log gives the game, reported version, protocol and game signature. This change uses protocol 11. The signature identifies game data for the handshake; record the source revision separately. Three-human joining by code
+requires an updated introduction service. To isolate the service on a reachable route, join the host by address.
+The production service is independently deployed.
+
+With the MVC program built, run the controller and rematch checks using your own ROM directory or archive:
+
+```sh
+python3 tools/check_mvc_three_players.py --program build/mvsc/mvsc --rom rom/mvsc
+python3 tools/check_mvc_tag_requests.py --program build/mvsc/mvsc --rom rom/mvsc
+python3 tools/check_mvc_rematch.py --program build/mvsc/mvsc --rom rom/mvsc
+```
+
+`make check-gamepad-slots` attaches four SDL virtual gamepads, holds six buttons, removes two pads and reconnects them in reverse order. It checks the still-connected pads' slot numbers and button states. Identical pads without a unique serial or path use the first matching vacancy.
+
+Use `python3 tools/check_host_delay.py --rom rom/mvsc` for six actual two-process
+delay negotiations, including an explicit zero and conflicting launcher/game values.
+
+The first MVC check plays from character select through both timed attacks and staggered expiry on both three-human
+layouts. It reads the four actor records during the match. The second drives both teams' bench and point HP+HK,
+and tests the original and Dreamcast-style taunt inputs. The third checks a second fight from cold boot, including
+whether both teams can choose new fighters and whether those fighters remain human-controlled. These tests use
+ordinary game inputs and read-only observations.
+
+The frozen macOS arm64 interpreter (`SHA256=84f0419588de575cd390f4c112e061128cabd419c4df7d3debdc657392355a3e`)
+passed eight cold-boot rematches: either KO winner, a win on time, a draw, the losing side pressing Start early,
+both three-human layouts and an Arcade continue control. In Everyone reselects, each of the four picks was confirmed
+by its assigned owner. Arcade continue reopened only the losing side. All eight reached a second human-versus-human fight.
+
+The translated MVC executable (`SHA256=5cd9f32ea8a310dd00b374a368fe01dea22e0842eddfcd91f02337d3e76c4a76`)
+passed both three-human layouts with 792 frames of simultaneous Duo in each. A 7,100-frame movie produced identical
+state hashes in translated execution and its block-scheduled interpreter. A separate 4,500-frame direct UDP run
+used four playing processes and a viewer on one Mac, four frames of delay, FT5, every custom match rule, and the four
+outgoing link profiles below. The players agreed on 4,491 confirmed frames; the viewer matched 4,452 host frames.
+The recorded controls reproduced the match offline. Other tests ran concurrently, so the timing logs from this
+run should be used for diagnosing stalls, not estimating typical performance.
+
+The translated build also passed the KO and time-win rematch checks. In a separate late-join run a spectator
+joined at frame 352, matched 1,289 confirmed frames and left while the players continued. Local `make check`,
+the reset and virtual-gamepad targets, the 12 native protocol groups and the repository audit passed.
+
+All 45 Node service tests passed, including admission, invitations and spectators. The separate spectator check also passed. A local Worker
+run with three single-controller copies confirmed 205 shared frames; four confirmed 198. All seven match rule
+values were checked on every copy with deliberately different saved guest settings, including the selected
+taunt and rematch choices. Display preferences remained per machine. The short Worker runs check admission and
+rule negotiation; the separate gameplay tests exercise the mechanics.
+
+To exercise custom choices in a longer direct-UDP replay test, use `MVC_CUSTOM=1` with a three- or four-human
+layout. `FIRST_TO=1` requests FT5. `WATCH=1` adds a spectator whose input cannot reach the match.
+
+For an uneven-route test, the profile for each machine is its *outgoing* simulated delay in ms, jitter in ms and
+loss in percent, host first. These are synthetic values. They do not model a particular city or ISP.
+
+```sh
+for delay in 2 4; do
+    NET_DELAY=$delay NET_PROFILES=15:4:0,38:10:1,82:25:2,52:15:1 \
+        PEOPLE=1,1,1,1 GAME=mvsc tools/check_online.sh 750 || exit 1
+done
+```
+
+A paired macOS arm64 interpreter run used executable
+`SHA256=6bbf7877f01a4d12790d52ab65208c36f093517a639991ecdf4e777b4886d634` for both delays. Each row is
+one run. Counted waits are polling ticks. The number of ticks per second depends on machine scheduling.
+
+| Host delay | Common confirmed frames | Host rollbacks | Host re-simulated frames | Host prediction waits | Host pacing waits |
+|---|---:|---:|---:|---:|---:|
+| 2 frames | 745 | 184 | 664 | 151 | 19 |
+| 4 frames | 746 | 57 | 248 | 130 | 17 |
+
+Both captures replayed offline to matching hashes. Four frames traded about 34 ms of additional local input delay
+for fewer corrections on these routes. Repeat with different hosts and hardware before selecting a group default.
+
+For the next internet set, keep players/settings fixed and rotate the host. Record each host's three direct RTTs,
+prediction waits, pacing waits, rollbacks, frame overruns and confirmed hashes through a match **and** rematch.
+A joining player's on-screen ping includes an estimated route via the host. The direct-link log identifies the
+measured hop. If a code lookup succeeds but no UDP reply arrives, try the same host over a reachable address or a
+forwarded UDP port, then try a different host. This distinguishes a failed connection from rollback stalls after
+play has started. Share logs with invite codes and network addresses removed.
+
 ## Internet acceptance still required
 
 Record build, platform, people per machine, joining order, connection method, result, ping, stalls and desyncs.
