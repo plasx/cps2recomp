@@ -69,6 +69,23 @@ The existing graphics-page alignment table supplied the candidate pages, then th
 selected each tile on the page. This establishes that the same tile detail exists in both sets. It leaves the
 Dreamcast's live animation sequence, palette RGB, output scaling and frame pacing unmeasured.
 
+**One combat comparison.** We cold-booted US Dreamcast Cross Fever, the European arcade program on the recomp's
+two-player settings, and the same arcade program with four-person Cross Fever. Ryu stood 62 world units from
+Spider-Man and pressed LP+LK once. The other three controllers stayed neutral during the attack. In all three runs
+Spider-Man took one hit, his life went from 144 to 129, and Ryu returned to standing after 55 simulation steps.
+On the Dreamcast the target reacted nine steps after the sampled command; on both arcade profiles it took eight.
+The reaction ended 44 displayed frames after the command on all three. The two arcade traces agreed throughout
+the 86-frame sample. Delaying the arcade chord by zero through five displayed frames in separate cold runs yielded
+15 or 17 damage and contact after seven to nine steps. The Dreamcast observation falls within that range. Spider-Man's
+vertical position differed by 0.875 units between platforms, and a display sample can span two game steps.
+This case gives us no damage correction to port.
+
+To replay the arcade comparison, use the [two-player movie](movies/ryu_contact_arcade.txt) with `--features free_play`
+and the [four-player movie](movies/ryu_contact_cross_fever.txt) with `--features free_play,tag_team=2,cross_fever`.
+Use a fresh settings file and EEPROM for each. With `--frames 4640 --trace FF3000-FF449F:trace`, compare the
+attacker and victim records at FF3000 and FF3400, in particular +0xD0 (held), +0x270 (life), +0xB0 (action)
+and +0x06 (state). The attack is on movie frame 4500. On Dreamcast the corresponding life word is +0x268.
+
 No general advantage in input latency, hit boxes or damage follows from these results. To port a
 suspected character fix, record the two revisions with the same fighter/form, opponent, facing, speed, starting meter
 and ordinary button sequence. Compare the first differing action, game step, contact, damage and recovery. A
