@@ -56,10 +56,14 @@ int TagPick(uint32_t record) {
     return side < 0 ? -1 : (Ram8((record & 0xFFFFFF) + kWhichPick) & 1) ^ g_swapped[side];
 }
 
+void ResetTagOrder() {
+    g_swapped[0] = g_swapped[1] = 0;
+}
+
 void TagState(Archive &ar) {
     // Upstream version 11 had no MVC order part; the four-player preview's version 11 already did.
     if (ar.version != 0 && (ar.version < 11 || (ar.version == 11 && !ar.NextMark(0x54414F52)))) {
-        g_swapped[0] = g_swapped[1] = 0;
+        ResetTagOrder();
         return;
     }
     ar.Mark(0x54414F52); // TAOR
@@ -70,6 +74,11 @@ void RegisterTag() {
     AddHook(HookAt(0x00BB2C), "TagOrderChosen", OrderChosen);
     AddHook(HookAt(0x00BD28), "TagFirstPick", FirstPick);
     tag::Description d;
+    d.threePlayers = true;
+    d.help = "Co-op pairs P1 and P2 against the computer. In versus, P1 starts left and P2 right. "
+             "2 vs 2 pairs P1/P3 against P2/P4. With three people, P3 takes the second fighter on the left "
+             "(2 vs 1) or right (1 vs 2). The solo player chooses and plays both fighters. HP+HK tags. "
+             "Turn on Cross Fever for independent teammate controls during Duo.";
     d.onPoint = [](int side) { return Ram8(kPlaying) != 0 && Ram16(kGameStep) == kGameMatch ? TagPick(Player(side)) : -1; };
     d.picking = [](int side) {
         const uint32_t record = kChoosing + static_cast<uint32_t>(side) * kChoosingSize;
@@ -80,7 +89,10 @@ void RegisterTag() {
     };
     d.fighting = [] { return Ram16(kGameStep) == kGameMatch && Ram8(kFight) == kFighting; };
     d.otherMode = [] { return session::InSession() || modes::AttractMode() || modes::StageViewer() || BattleMode() || marvel::ModelViewer(); };
-    d.labelY = 0.19f;
+    // The native special-partner portrait and counter extend through row 64 (224-line picture).
+    d.labelY = 0.305f;
+    TheGame().onlineNamesY = 84;
+    TheGame().onlineBottomInset = 34; // TIME, the Hyper gauges and level occupy the bottom 33 board pixels
     tag::Register(d);
 }
 

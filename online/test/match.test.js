@@ -194,19 +194,21 @@ test("a legacy host is two players, ignoring each machine's larger people settin
   assert.equal(extra.body.error, "Someone has joined that match already.");
 });
 
-// Every ordered partition of four people with one or two at the host and one or two at each joiner.
-for (const [here, joiners] of [[1, [1, 1, 1]], [1, [1, 2]], [1, [2, 1]], [2, [1, 1]], [2, [2]]]) {
-  test("four people admitted in arrival order: " + [here, ...joiners].join(" + "), async (t) => {
+// Every machine contributes one or two people. The host is first in each layout.
+for (const [here, ...joiners] of [[1, 1, 1], [2, 1], [1, 2], [1, 1, 1, 1], [1, 1, 2], [1, 2, 1], [2, 1, 1], [2, 2]]) {
+  const players = joiners.reduce((total, count) => total + count, here);
+  const protocol = players === 3 ? 11 : 10;
+  test(`${players} people admitted in arrival order: ` + [here, ...joiners].join(" + "), async (t) => {
     const f = fixture(t);
-    const host = await start(f, { players: 4, here });
-    let left = 4 - here;
+    const host = await start(f, { players, here, protocol });
+    let left = players - here;
     const expected = [];
     for (let i = 0; i < joiners.length; ++i) {
       const info = await f.request("/v1/code/" + host.code);
       assert.equal(info.status, 200);
-      assert.equal(info.body.players, 4);
+      assert.equal(info.body.players, players);
       assert.equal(info.body.room, left);
-      const joined = await f.join(host.code, 7001 + i, { people: joiners[i] });
+      const joined = await f.join(host.code, 7001 + i, { people: joiners[i], protocol });
       assert.equal(joined.status, 200);
       assert.equal(joined.body.ticket, i + 1);
       assert.deepEqual(joined.body.addresses, ["127.0.0.1:7000"]);
@@ -216,7 +218,7 @@ for (const [here, joiners] of [[1, [1, 1, 1]], [1, [1, 2]], [1, [2, 1]], [2, [1,
     }
     assert.equal(left, 0);
     assert.equal((await f.request("/v1/code/" + host.code)).status, 409);
-    const extra = await f.join(host.code, 7010);
+    const extra = await f.join(host.code, 7010, { protocol });
     assert.equal(extra.status, 409);
     assert.equal(extra.body.error, "That match is full.");
     assert.deepEqual((await f.poll(host)).body.joiners, expected);
@@ -232,6 +234,46 @@ test("a two-person joiner cannot consume the last single seat or a ticket", asyn
   assert.match(refused.body.error, /room for one more player/);
   assert.equal((await f.request("/v1/code/" + host.code)).body.room, 1);
   assert.equal((await f.join(host.code, 7003)).body.ticket, 2);
+});
+
+test("three-person admission requires a compatible protocol and keeps the last seat for one person", async (t) => {
+  const f = fixture(t);
+  for (const protocol of [undefined, 10]) {
+    const outdated = await f.host({ players: 3, protocol });
+    assert.equal(outdated.status, 400);
+    assert.match(outdated.body.error, /protocol/i);
+  }
+  const host = await start(f, { players: 3, here: 2, protocol: 11 });
+  for (const protocol of [undefined, 10]) {
+    const outdated = await f.join(host.code, 7001, { protocol });
+    assert.equal(outdated.status, 409);
+    assert.match(outdated.body.error, /protocol/i);
+  }
+  const refused = await f.join(host.code, 7001, { protocol: 11, people: 2 });
+  assert.equal(refused.status, 409);
+  assert.match(refused.body.error, /room for one more player/);
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 1);
+  assert.equal((await f.join(host.code, 7002, { protocol: 11 })).body.ticket, 1);
+});
+
+test("three-person matches release both local seats together and spectators keep a separate reservation", async (t) => {
+  const f = fixture(t);
+  const host = await start(f, { players: 3, here: 1, protocol: 11, spectators: true });
+  const pair = await f.join(host.code, 7001, { protocol: 11, people: 2 });
+  assert.equal(pair.status, 200);
+  await f.poll(host, String(pair.body.ticket));
+  assert.equal((await f.request("/v1/code/" + host.code)).body.room, 2);
+  const first = await f.join(host.code, 7002, { protocol: 11 });
+  const second = await f.join(host.code, 7003, { protocol: 11 });
+  assert.equal(first.body.ticket, pair.body.ticket + 1);
+  assert.equal(second.body.ticket, first.body.ticket + 1);
+  assert.equal((await f.watch(host.code, { protocol: 11 })).status, 409);
+  await f.poll(host, "", true);
+  const viewer = await f.watch(host.code, { protocol: 11 });
+  assert.equal(viewer.status, 200);
+  const next = await f.poll(host, String(pair.body.ticket), true);
+  assert.deepEqual(next.body.joiners, [`${first.body.ticket} 127.0.0.1:7002`, `${second.body.ticket} 127.0.0.1:7003`]);
+  assert.equal(next.body.viewers[0].token, viewer.body.token);
 });
 
 for (const [field, value, message] of [["game", "another-game", /another game/],

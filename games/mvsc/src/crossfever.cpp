@@ -24,7 +24,7 @@
 //     is pressed). Here 01A196. (In its versus modes the Dreamcast also wants the player's taunt button held alone,
 //     8C4EBF9A, light punch unless changed, since Start alone pauses its game; here Start is the taunt, as on the board.)
 //
-// The rest is the board's, which the Dreamcast's game shares: the attack's length (016E02: by the gauge's levels, and
+// For Duo, both versions share the arcade rules for the attack's length (016E02: by the gauge's levels, and
 // half the bar) and who stays in at its end (015FF0 goes by what each character is doing, as the Dreamcast's does).
 // Every place is from the listing (tools/lst.py); traced with games/mvsc/movies/cross_fever.txt.
 #include "alternative.h"
@@ -35,6 +35,7 @@
 namespace cps2recomp {
 
 int TagPick(uint32_t record); // tag.cpp
+void ResetTagOrder();
 
 namespace {
     using namespace mvsc;
@@ -56,6 +57,78 @@ namespace {
     // moves are held (FF4031: a tag on its way, 014ACC), bits 2 and 4 while nobody's are looked for (FF400F)
     constexpr uint32_t kOffPoint = 0x281;
     constexpr uint32_t kMovesHeld = 0xFF4031, kNoMoves = 0xFF400F;
+    uint8_t g_tagHeld = 0x0F, g_tagPressed = 0;
+    enum : uint8_t { kOrdinary, kAfterResult, kFreshPicks };
+    uint8_t g_reselect = kOrdinary;
+
+    bool EveryoneReselects() {
+        return On() && tag::Chosen() >= tag::kVersus && FeatureOn("cross_fever_reselect");
+    }
+
+    // Before 012798/0127A6 retain only the winner's bit, remember that both teams played.
+    // The board must still finish the match, announce its winner and update the set.
+    bool MatchDecided(M68K &) {
+        g_reselect = EveryoneReselects() && Ram8(kPlayersIn) == 3 ? kAfterResult : kOrdinary;
+        return false;
+    }
+
+    // At the end of results use the board's challenger-to-selection tail. It restores all four
+    // records' human flags from the joined-team mask and enters 00AF46, the interactive selector.
+    bool Reselect(M68K &c) {
+        if (g_reselect != kAfterResult || Ram16(kGameStep) != kGameResult) return false;
+        g_reselect = kOrdinary;
+        if (!EveryoneReselects()) return false;
+        g_reselect = kFreshPicks;
+        SetRam8(kPlayersIn, 3);
+        SetRam8(kJoining, 3);
+        c.Push32(c.a[6]);
+        c.Push32(c.a[4]); // MOVEM.L A4/A6,-(A7) at 0242AE; its tail restores both
+        Spend(c, 24);
+        c.pc = 0x024346;
+        return true;
+    }
+
+    // If the losing team pressed Start during results, the stock challenger flow already
+    // restored its human flags before calling 00AF46. Open the winning team's cursor too.
+    bool ChallengerReselect(M68K &) {
+        if (g_reselect != kAfterResult || Ram16(kGameStep) != kGameChoosing) return false;
+        g_reselect = kOrdinary;
+        if (EveryoneReselects() && Ram8(kPlayersIn) == 3) {
+            SetRam8(kJoining, 3);
+            g_reselect = kFreshPicks;
+        }
+        return false;
+    }
+
+    // 00AF86 rebuilds the mask of teams keeping their fighters each time an admission edge is
+    // consumed. When both cursors must open, the second edge must not re-lock the previous winner.
+    // Leave the winner's fighter record (+2B2), ranking and score intact.
+    bool FreshPicks(M68K &c) {
+        if (g_reselect != kFreshPicks || !EveryoneReselects() || Ram16(kGameStep) != kGameChoosing) return false;
+        SetRam8(0xFF4160, 0);
+        c.pc = 0x00AFB2; // process FF4102 through the stock code
+        Spend(c, 16); // CLR.B at the start of this routine
+        return true;
+    }
+
+    // 01945C is the BNE after the human point fighter's normal tag chord check at 019456.
+    // The game has checked the partner's health and availability here. Let its remaining
+    // eligibility check at 017476 and its own tag action run. A bench request never inserts
+    // directions or attacks into the point fighter's command history.
+    bool PartnerTag(M68K &c) {
+        if (!c.flagZ || !g_tagPressed || !On() || !FeatureOn("cross_fever_partner_tag")) return false;
+        const uint32_t record = c.a[6] & 0xFFFFFF;
+        const int side = SideOf(record);
+        if (side < 0 || Ram16(kGameStep) != kGameMatch || Ram8(kFight) != kFighting ||
+            Ram8(record + kOffPoint) || ((Ram8(kDuoOn) >> side) & 1)) return false;
+        const int pick = TagPick(record);
+        const int bench = tag::Person(side, 1 - pick);
+        if (bench < 0 || bench == tag::Person(side, pick) || !(g_tagPressed & (1 << bench))) return false;
+        g_tagPressed &= ~(1 << bench);
+        c.d[0] = 1;
+        c.flagZ = false; // MOVEQ #1 from the normal successful chord matcher
+        return false; // execute the stock BNE
+    }
 
     // Off point, outside its side's Duo Team Attack (kDuoOn)
     bool OffPoint(uint32_t record) {
@@ -96,7 +169,7 @@ namespace {
     // 015F68: a side's time for its Duo Team Attack (A4: kDuoTime's word) taken one off. In Cross Fever only on odd steps
     // (kStepCount); on even ones on to 015F6C, as when the time is held, the attack's bit set again.
     bool DuoTime(M68K &c) {
-        if (!On() || (Ram8(kStepCount + 1) & 1)) {
+        if (!On() || FeatureOn("cross_fever_arcade_time") || (Ram8(kStepCount + 1) & 1)) {
             return false;
         }
         Spend(c, 20); // (subq.w and ble's time)
@@ -111,10 +184,14 @@ namespace {
     uint8_t g_gaugeSteps;
 
     // 000FAC: the board's boot calls its settings reader (007E7A; board.cpp hooks its return at 000FB2).
-    // Machine::Reset clears the board's RAM, not this host-side count. Reset it here even if Cross Fever is off,
-    // so a reset/rehost starts with the same gauge phase as a fresh process. Ordinary match transitions keep it.
+    // Machine::Reset clears board RAM. A rehost must also start the clock, tag edges and both controller
+    // order selectors as a fresh process would, even when the previous host used different features.
     bool GaugeBoot(M68K &) {
+        ResetTagOrder();
+        g_reselect = kOrdinary;
         g_gaugeSteps = 0;
+        g_tagHeld = 0x0F;
+        g_tagPressed = 0;
         return false;
     }
 
@@ -132,7 +209,7 @@ namespace {
             if (g_gaugeSteps < 7) {
                 g_gaugeSteps++;
             }
-            if (!On() || g_gaugeSteps < 7) {
+            if (!On() || FeatureOn("cross_fever_earned_meter") || g_gaugeSteps < 7) {
                 return false;
             }
             g_gaugeSteps = 0;
@@ -215,37 +292,87 @@ namespace {
         const uint8_t start = Ram8(record + 0x26E);
         c.d[0] = (c.d[0] & 0xFFFFFF00) | start;
         c.d[1] = static_cast<uint32_t>(side);
-        c.flagZ = !((start >> side) & 1);
+        // USA Dreamcast 8C0326E6..8C03270C compares the entire actor input word (+CE there, +D0 here)
+        // with a single configured attack bit. A direction or a second attack disqualifies it.
+        constexpr uint16_t chordButton[] = {0, 0x10, 0x20, 0x40, 0x100, 0x200, 0x400};
+        const int choice = FeatureValue("cross_fever_taunt");
+        const bool chord = choice > 0 && choice <= 6;
+        c.flagZ = !((start >> side) & 1) || (chord && Ram16(record + 0xD0) != chordButton[choice]);
         Spend(c, 50);
         c.pc = c.flagZ ? 0x01A21C : 0x01A1B0;
         return true;
     }
 } // namespace
 
+void CrossFeverInputs(const uint16_t *players) {
+    if (g_reselect == kFreshPicks && Ram16(mvsc::kGameStep) == mvsc::kGameMatch) g_reselect = kOrdinary;
+    constexpr auto chord = kPunch3 | kKick3;
+    uint8_t held = 0;
+    for (int i = 0; i < Machine::kMaxPlayers; i++) {
+        if ((players[i] & chord) == chord) held |= 1 << i;
+    }
+    g_tagPressed = held & ~g_tagHeld;
+    g_tagHeld = held;
+}
+
 void CrossFeverState(Archive &ar) {
+    // Ignore held inputs until release when loading a state predating bench-tag edges.
+    if (!ar.Saving() && ar.version != 0 && ar.version < 13) {
+        g_tagHeld = 0x0F;
+        g_tagPressed = 0;
+        g_reselect = kOrdinary;
+    }
     // Version 11 existed both with this preview's clock and without it in upstream MVC.
-    if (ar.version != 0 && (ar.version < 11 || (ar.version == 11 && !ar.NextMark(0x43465653)))) {
+    if (ar.version != 0 && (ar.version < 11 || (ar.version == 11 && !ar.Saving() && !ar.NextMark(0x43465653)))) {
         g_gaugeSteps = 0;
         return;
     }
     ar.Mark(0x43465653); // CFVS
     ar.Pod(g_gaugeSteps);
+    if (ar.version == 0 || ar.version >= 13) {
+        ar.Pod(g_tagHeld);
+        ar.Pod(g_tagPressed);
+        ar.Pod(g_reselect);
+    }
 }
 
 void RegisterCrossFever() {
     AddHook(HookAt(0x000FAC), "CrossFeverGaugeBoot", GaugeBoot);
     AddHook(HookAt(0x01368E), "CrossFeverPanel", ReadPanel);
+    AddHook(HookAt(0x012786), "CrossFeverMatchDecided", MatchDecided);
+    AddHook(HookAt(0x0D39EE), "CrossFeverReselect", Reselect);
+    AddHook(HookAt(0x00AF86), "CrossFeverFreshPicks", FreshPicks);
+    AddHook(HookAt(0x00AF46), "CrossFeverChallengerReselect", ChallengerReselect);
+    AddHook(HookAt(0x01945C), "CrossFeverPartnerTag", PartnerTag);
     AddHook(HookAt(0x015F68), "CrossFeverDuoTime", DuoTime);
     AddHook(HookAt(0x01CEAA), "CrossFeverGauge", GaugeStep);
     AddHook(HookAt(0x00D4AC), "CrossFeverPartnerControls", PartnerControls);
     AddHook(HookAt(0x018DB6), "CrossFeverPartnerMoves", PartnerMoves);
     AddHook(HookAt(0x01A196), "CrossFeverTaunt", Taunt);
     TheGame().features.push_back({kFeature, modes::kModes, "Cross Fever",
-                                  "With Tag team on: each character is moved by its own person all the time, also beside the "
-                                  "other in a Duo Team Attack, and the attack lasts twice as long, as in the Dreamcast's Cross "
-                                  "Fever mode. Both teams' hyper combo gauges fill slowly by themselves. The person on point "
-                                  "tags out (HP+HK); the partner can't call a tag.",
+                                  "Choose a Tag team layout first. During Duo, each human controls their chosen fighter. "
+                                  "The host chooses the meter, Duo duration and tag rules for everyone.",
                                   kFeatureMatch});
+    TheGame().features.push_back({"cross_fever_earned_meter", modes::kModes, "Cross Fever meter",
+                                  "Dreamcast adds a little meter every seven game steps. Arcade earns meter through play. "
+                                  "Both choices allow independent Duo controls when Cross Fever is on.",
+                                  kFeatureMatch, {"Dreamcast", "Arcade"}});
+    TheGame().features.push_back({"cross_fever_arcade_time", modes::kModes, "Cross Fever Duo time",
+                                  "Dreamcast counts down Duo time every other game step. Arcade uses the original countdown.",
+                                  kFeatureMatch, {"Dreamcast", "Arcade"}});
+    TheGame().features.push_back({"cross_fever_taunt", modes::kModes, "Cross Fever taunt",
+                                  "Start repeats the taunt while held. For Dreamcast controls choose Start + LP, "
+                                  "or choose another attack button. Hold only that attack with Start and leave the stick neutral.",
+                                  kFeatureMatch, {"Start", "Start + LP", "Start + MP", "Start + HP",
+                                                  "Start + LK", "Start + MK", "Start + HK"}});
+    TheGame().features.push_back({"cross_fever_reselect", modes::kModes, "Cross Fever rematch",
+                                  "After a versus match, Arcade continue keeps the winning team. Everyone reselects "
+                                  "returns both teams to character select. The set keeps its score.",
+                                  kFeatureMatch, {"Arcade continue", "Everyone reselects"}});
+    TheGame().features.push_back({"cross_fever_partner_tag", modes::kModes, "Cross Fever tag",
+                                  "Press HP+HK to tag. Point follows the Dreamcast. Either also lets the resting "
+                                  "teammate request a normal tag with a fresh HP+HK press outside Duo.",
+                                  kFeatureMatch, {"Point", "Either"}});
 }
 
 } // namespace cps2recomp

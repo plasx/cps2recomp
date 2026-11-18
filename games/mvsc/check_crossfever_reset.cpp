@@ -20,7 +20,12 @@ namespace {
     using namespace cps2recomp;
     std::array<uint8_t, 0x10000> memory;
     std::map<uint32_t, HookFn> hooks;
-    bool enabled = true, routing = true;
+    bool enabled = true, routing = true, earnedMeter = false, arcadeTime = false;
+    bool benchTag = false;
+    int tauntButton = 0;
+    int soloSide = -1;
+    bool reselect = false;
+    tag::Mode teamMode = tag::kVersus;
 
     void Require(bool value, const std::string &why) {
         if (!value) {
@@ -43,11 +48,21 @@ namespace {
 namespace cps2recomp {
     void RegisterCrossFever();
     void CrossFeverState(Archive &ar);
+    void CrossFeverInputs(const uint16_t *players);
+    void RegisterTag();
     void TagState(Archive &ar);
     int TagPick(uint32_t record);
 
     Game &TheGame() { static Game game; return game; }
-    bool FeatureOn(const char *) { return enabled; }
+    bool FeatureOn(const char *name) {
+        const std::string key(name);
+        if (key == "cross_fever_earned_meter") return earnedMeter;
+        if (key == "cross_fever_arcade_time") return arcadeTime;
+        if (key == "cross_fever_partner_tag") return benchTag;
+        if (key == "cross_fever_reselect") return reselect;
+        return key == "cross_fever" && enabled;
+    }
+    int FeatureValue(const char *name) { return std::string(name) == "cross_fever_taunt" ? tauntButton : 0; }
     uint8_t *Ram(uint32_t address) { return &memory[address & 0xFFFF]; }
     bool BattleMode() { return false; }
     namespace session { bool InSession() { return false; } }
@@ -62,7 +77,8 @@ namespace cps2recomp {
     namespace tag {
         void Register(const Description &) {}
         bool Routing() { return routing; }
-        int Person(int side, int pick) { return side + 2 * pick; }
+        Mode Chosen() { return teamMode; }
+        int Person(int side, int pick) { return side == soloSide ? side : side + 2 * pick; }
         uint16_t Held(int) { return 0; }
     }
     uint32_t M68K::Read(uint32_t address, unsigned size) {
@@ -166,12 +182,13 @@ namespace {
 
     void StateVersions() {
         // The preview and upstream used 11 for different additions. Only the preview contains MVC's TAOR/CFVS.
-        for (unsigned version : {11u, 12u}) {
+        for (unsigned version : {11u, 12u, 13u}) {
             ClearOldState();
             MakeRecords();
             Credits(3);
             std::vector<uint8_t> bytes;
             Archive save(bytes, true);
+            save.version = version;
             save.Mark(0x54414F52);
             uint8_t swaps[2] = {1, 0};
             save.Pod(swaps);
@@ -210,11 +227,169 @@ namespace {
             Require(!broken.Ok(), "new state silently accepted a missing clock");
         }
     }
+
+    void ReselectRules() {
+        M68K cpu(bus);
+        auto result = [&](uint8_t humans) {
+            SetRam8(mvsc::kPlayersIn, humans);
+            Require(!hooks.at(0x012786)(cpu), "must let the game record the winner");
+            SetRam16(mvsc::kGameStep, mvsc::kGameResult);
+            SetRam8(mvsc::kPlayersIn, 1); // stock winner after the result
+            SetRam8(mvsc::kJoining, 0);
+        };
+        auto selecting = [&]() {
+            cpu.a[7] = 0xFF8000;
+            const bool entered = hooks.at(0x0D39EE)(cpu);
+            return entered && cpu.pc == 0x024346 && Ram8(mvsc::kPlayersIn) == 3 && Ram8(mvsc::kJoining) == 3;
+        };
+        ClearOldState();
+        for (auto mode : {tag::kOff, tag::kCoop, tag::kVersus, tag::kTwoVsOne, tag::kOneVsTwo}) {
+            teamMode = mode;
+            for (bool choice : {false, true}) {
+                reselect = choice;
+                for (uint8_t humans : {1, 2, 3}) {
+                    result(humans);
+                    Require(selecting() == (mode >= tag::kVersus && choice && humans == 3),
+                            "only a completed human versus match can reselect");
+                }
+            }
+        }
+        result(3);
+        std::vector<uint8_t> bytes;
+        Archive save(bytes, true);
+        save.version = 13;
+        CrossFeverState(save);
+        Boot();
+        Require(!selecting(), "warm boot retained a pending reselection");
+        Archive load(bytes, false);
+        load.version = 13;
+        CrossFeverState(load);
+        Require(load.Ok() && selecting(), "save/load lost pending reselection");
+        SetRam8(mvsc::kPlayersIn, 1);
+        Require(!selecting(), "same result triggered a second reselection");
+        SetRam16(mvsc::kGameStep, mvsc::kGameChoosing);
+        SetRam8(0xFF4160, 3);
+        Require(hooks.at(0x00AF86)(cpu) && cpu.pc == 0x00AFB2 && Ram8(0xFF4160) == 0,
+                "stock keep-winner mask locked a rematch cursor");
+        SetRam16(mvsc::kGameStep, mvsc::kGameMatch);
+        const uint16_t held[4] = {};
+        CrossFeverInputs(held);
+        SetRam16(mvsc::kGameStep, mvsc::kGameChoosing);
+        Require(!hooks.at(0x00AF86)(cpu), "fresh-pick override leaked into another selection");
+        result(3);
+        SetRam8(mvsc::kPlayersIn, 3);
+        SetRam16(mvsc::kGameStep, mvsc::kGameChoosing);
+        Require(!hooks.at(0x00AF46)(cpu) && Ram8(mvsc::kJoining) == 3,
+                "early challenger Start did not open both teams in the stock selector");
+        result(3);
+        reselect = false;
+        Require(!selecting(), "disabled option changed arcade continuation");
+        reselect = true;
+        Require(!selecting(), "re-enabling the option reused a previous result");
+        teamMode = tag::kVersus;
+        reselect = false;
+    }
+
+    void PartnerTagRequests() {
+        ClearOldState();
+        Boot();
+        SetRam16(mvsc::kGameStep, mvsc::kGameMatch);
+        SetRam8(mvsc::kFight, mvsc::kFighting);
+        uint16_t held[4] = {};
+        constexpr uint16_t chord = kPunch3 | kKick3;
+        auto pulse = [&](int person, uint16_t buttons) {
+            held[person] = 0;
+            CrossFeverInputs(held);
+            held[person] = buttons;
+            CrossFeverInputs(held);
+        };
+        auto requested = [&](int side) {
+            M68K cpu(bus);
+            cpu.a[6] = mvsc::kPlayer1 + side * mvsc::kPlayerSize;
+            cpu.flagZ = true; // native point matcher did not recognize a chord
+            Require(!hooks.at(0x01945C)(cpu), "native tag eligibility and BNE must run");
+            return !cpu.flagZ && cpu.d[0] == 1;
+        };
+        for (int side : {0, 1}) {
+            const int person = side + 2;
+            benchTag = false;
+            pulse(person, chord);
+            Require(!requested(side), "default Point accepted bench tag");
+            benchTag = true;
+            pulse(person, kPunch3);
+            Require(!requested(side), "one button triggered tag");
+            pulse(person, chord);
+            Require(!requested(1 - side), "opposing team received bench tag");
+            Require(requested(side) && !requested(side), "fresh chord must be consumed once");
+            SetRam8(mvsc::kDuoOn, 1 << side);
+            pulse(person, chord);
+            Require(!requested(side), "own Duo accepted bench tag");
+            CrossFeverInputs(held);
+            SetRam8(mvsc::kDuoOn, 0);
+            Require(!requested(side), "held chord crossed Duo expiry");
+            SetRam8(mvsc::kDuoOn, 1 << (1 - side));
+            pulse(person, chord);
+            Require(requested(side), "opponent Duo suppressed team tag");
+            SetRam8(mvsc::kDuoOn, 0);
+            pulse(person, chord);
+            soloSide = side;
+            Require(!requested(side), "solo team used partner override");
+            soloSide = -1;
+            std::vector<uint8_t> bytes;
+            Archive save(bytes, true);
+            CrossFeverState(save);
+            Require(requested(side), "could not consume prior to restore");
+            Archive load(bytes, false);
+            load.version = 13;
+            CrossFeverState(load);
+            Require(load.Ok() && requested(side), "unconsumed request lost on rollback");
+            CrossFeverInputs(held);
+            Require(!requested(side), "held chord replayed after restore");
+            pulse(person, chord);
+            Boot();
+            CrossFeverInputs(held);
+            Require(!requested(side), "held chord survived board reset");
+        }
+        benchTag = false;
+    }
 } // namespace
 
 int main() {
     try {
         RegisterCrossFever();
+        RegisterTag();
+        {
+            M68K cpu(bus);
+            SetRam8(mvsc::kPlaying, 1);
+            SetRam8(mvsc::kPlayersIn, 3);
+            for (unsigned side = 0; side < 2; ++side) SetRam16(mvsc::kPanel[side], 0x70);
+            Require(!hooks.at(0x00BB2C)(cpu), "stock three-punch order change must run");
+            for (unsigned side = 0; side < 2; ++side)
+                Require(TagPick(mvsc::kPlayer1 + side * mvsc::kPlayerSize) == 1, "second pick should lead before reset");
+            Boot();
+            for (unsigned side = 0; side < 2; ++side)
+                Require(TagPick(mvsc::kPlayer1 + side * mvsc::kPlayerSize) == 0, "warm board boot retained the previous team's starting order");
+        }
+        // Reuse the game's taunt entry for both players and each of the six donor button settings.
+        for (int side = 0; side < 2; ++side) {
+            const uint32_t actor = mvsc::kPlayer1 + side * mvsc::kPlayerSize;
+            M68K cpu(bus);
+            cpu.a[6] = actor;
+            SetRam8(actor + 0x26E, 1 << side);
+            for (tauntButton = 0; tauntButton <= 6; ++tauntButton) {
+                const uint16_t button = tauntButton == 0 ? 0 : 1u << (tauntButton + (tauntButton <= 3 ? 3 : 4));
+                for (uint16_t word : {button, uint16_t(button | 1), uint16_t(button | 0x30), uint16_t(0)}) {
+                    SetRam16(actor + 0xD0, word);
+                    Require(hooks.at(0x01A196)(cpu) && (cpu.pc == 0x01A1B0) == (!tauntButton || word == button),
+                            "taunt must use the entire current owner's input word");
+                }
+                SetRam8(actor + 0x26E, 1 << (1 - side));
+                SetRam16(actor + 0xD0, button);
+                Require(hooks.at(0x01A196)(cpu) && cpu.pc == 0x01A21C, "other side's Start taunted");
+                SetRam8(actor + 0x26E, 1 << side);
+            }
+        }
+        tauntButton = 0;
         for (unsigned intro : {0u, 1u, 6u, 7u, 100u, 180u}) {
             const auto cold = AfterBoot(0, intro);
             for (unsigned prior = 1; prior < 7; prior++) {
@@ -253,7 +428,24 @@ int main() {
         Credits(2);
         MakeRecords();
         Require(!Step() && Step(), "normal match transitions must retain gauge phase");
+        for (bool earned : {false, true}) {
+            for (bool shorter : {false, true}) {
+                ClearOldState();
+                MakeRecords();
+                earnedMeter = earned;
+                arcadeTime = shorter;
+                const auto credits = Credits(14);
+                Require(std::count(credits.begin(), credits.end(), true) == (earned ? 0 : 2), "meter rule");
+                M68K cpu(bus);
+                Require(hooks.at(0x015F68)(cpu) == !shorter, "Duo even-step rule");
+                SetRam8(mvsc::kStepCount + 1, 1);
+                Require(!hooks.at(0x015F68)(cpu), "both timers decrement on odd steps");
+            }
+        }
+        earnedMeter = arcadeTime = false;
         StateVersions();
+        ReselectRules();
+        PartnerTagRequests();
         std::cout << "PASS: Cross Fever reset, clock, ownership and legacy/current marked states\n";
     } catch (const std::exception &error) {
         std::cerr << "FAIL: " << error.what() << '\n';

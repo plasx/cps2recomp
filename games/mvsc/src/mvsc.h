@@ -25,11 +25,11 @@ enum : uint8_t { kFighting = 0x08 };
 
 // A byte, set once a game is being played, and the byte after it: who is in, bit 0 player 1, bit 1 player 2 (RAM
 // dumps of one- and two-player games; the attract mode's fights set 3)
-constexpr uint32_t kPlaying = 0xFF4100, kPlayersIn = 0xFF4101;
+constexpr uint32_t kPlaying = 0xFF4100, kPlayersIn = 0xFF4101, kJoining = 0xFF4102;
 // Words, each a step of the one before (traced with --watch over a game from Start): the game's (4 while the players
 // choose their characters, 00AA5C; 8 in a match, 00BC1E), and the match's
 constexpr uint32_t kGameStep = 0xFF4104, kMatchStep = 0xFF4106;
-enum : uint16_t { kGameChoosing = 4, kGameMatch = 8 };
+enum : uint16_t { kGameChoosing = 4, kGameMatch = 8, kGameResult = 12 };
 
 // The round's clock: seconds left, a BCD byte (99 at a round's start; a second off at 012BA0, sbcd), and the frames
 // left of the second after it (counted down at 012B84). Found by --watch through a fight.

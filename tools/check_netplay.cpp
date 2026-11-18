@@ -3,6 +3,7 @@
 // ROM-free protocol regressions. Compile the production translation unit, so these exercise the same packet,
 // socket and state-transition code as the game. Unused game-dependent sections are removed by the linker.
 #include "../port/netplay.cpp"
+#include "../fight/tag.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -18,7 +19,10 @@ void Require(bool condition, const std::string &message) {
 // These dependencies belong to introduction branches the tests do not enter. Fail explicitly if a test starts
 // consulting game features or discovering external interfaces; no game state or service is needed here.
 namespace cps2recomp {
-int FeatureValue(const char *) {
+Game &TheGame() { static Game game; return game; }
+int testTagMode = -1;
+int FeatureValue(const char *name) {
+    if (!strcmp(name, tag::kFeature) && testTagMode >= 0) return testTagMode;
     throw std::runtime_error("unexpected game feature lookup");
 }
 }
@@ -311,6 +315,43 @@ struct NetplayTest {
         }
     }
 
+    static void AsymmetricRosters() {
+        tag::Description description;
+        description.threePlayers = true;
+        tag::Register(description);
+        for (const auto mode : {tag::kTwoVsOne, tag::kOneVsTwo}) {
+            testTagMode = mode;
+            const int split = mode == tag::kTwoVsOne ? 0 : 1;
+            const int solo = 1 - split;
+            Require(TheGame().matchPlayers() == 3, "wrong human count for asymmetric match");
+            Require(tag::Person(solo, 0) == solo && tag::Person(solo, 1) == solo,
+                    "solo player's picks do not share a controller");
+            Require(tag::Person(split, 0) == split && tag::Person(split, 1) == 2,
+                    "teammates do not have distinct controllers");
+            const std::vector<std::vector<std::vector<int>>> layouts{
+                {{0}, {1}, {2}}, {{split, 2}, {solo}}, {{solo}, {split, 2}}};
+            for (const auto &layout : layouts) {
+                Netplay host(Settings(true));
+                host.needed = host.MatchPlayers();
+                host.people = static_cast<int>(layout[0].size());
+                host.links.resize(layout.size() - 1);
+                for (size_t m = 1; m < layout.size(); ++m)
+                    host.links[m - 1].people = static_cast<int>(layout[m].size());
+                Require(host.Wanted() == 0, "three people should fill the match");
+                host.Assign();
+                for (size_t m = 0; m < layout.size(); ++m) {
+                    for (size_t p = 0; p < layout[m].size(); ++p) {
+                        Require(host.roster[m].players[p] == layout[m][p], "incorrect asymmetric roster");
+                    }
+                }
+                Require(host.MachineOf(3) == -1, "phantom fourth player");
+            }
+        }
+        testTagMode = -1;
+        TheGame().matchOwner = nullptr;
+        TheGame().matchPlayers = nullptr;
+    }
+
     static uint16_t InputAt(int machine, int frame) {
         return static_cast<uint16_t>((machine + 1) * 0x1000 + frame * 17 + 1);
     }
@@ -404,6 +445,37 @@ struct NetplayTest {
         Require(recipient.Ready(6 + Netplay::kMostAhead - 1), "recipient prediction stopped early");
         Require(!recipient.Ready(6 + Netplay::kMostAhead) && recipient.ended.empty(), "recipient exceeded prediction limit");
         Receive(receiver, 1);
+    }
+
+    static void TimingSamples() {
+        Netplay peer(Settings(false));
+        auto &link = peer.links.emplace_back();
+        peer.machines = 2;
+        peer.local = 1;
+        // An older timing sample can carry a useful cumulative acknowledgement.
+        auto deliver = [&](uint32_t timestamp, uint8_t ack, int ahead) {
+            Writer w(kControls);
+            w.U32(7); w.U8(0); // simulation frame and number of control blocks
+            w.U8(2); w.U32(0); w.U32(ack);
+            w.U16(ahead * 100); w.U32(0); w.U32(0);
+            w.U32(timestamp); w.U32(0); w.U32(0); w.U16(40 + ahead);
+            peer.Take(link, w.out.data(), w.out.size());
+        };
+        deliver(UINT32_MAX - 3, 1, 1);
+        deliver(2, 2, 2); // wraps forward six milliseconds
+        deliver(UINT32_MAX - 1, 3, 7); // old packet arriving late
+        Require(link.theirAhead == 2 && link.farthest == 42 && link.echo == 2 && link.has[1] == 3,
+                "late timing sample reset pacing or dropped a useful acknowledgement");
+        deliver(2, 3, 7); // duplicate timestamp
+        Require(link.theirAhead == 2, "duplicate timing sample changed the pacing estimate");
+
+        // Give a later datagram a deliberately shorter simulated transit time.
+        peer.settings.fakeLag = 2000;
+        peer.SendTo({}, {1});
+        peer.settings.fakeLag = 1;
+        peer.SendTo({}, {2});
+        Require(peer.late.size() == 2 && peer.late.front().data.front() == 2,
+                "simulator hid reordering behind the oldest queued packet");
     }
 
     static void FirstToConsensus() {
@@ -607,7 +679,9 @@ struct NetplayTest {
                  {"departure acknowledgment and retry", DepartureAcknowledgments},
                  {"departure transmission and failed-service retry", DepartureTransmission},
                  {"five mixed-machine rosters and start packets", Rosters},
+                 {"both three-human formats across all three machine layouts", AsymmetricRosters},
                  {"four input streams, retransmission, relay and bounded prediction", FourStreamControls},
+                 {"reordered timing samples, clock wrap and simulated delivery order", TimingSamples},
                  {"all-machine first-to consensus and score mismatch", FirstToConsensus},
                  {"reliable mode events and four-human mode guard", ModeEvents},
                  {"four-stream confirmed spectators and read-only controls", SpectatorControls}}) {

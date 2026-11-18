@@ -76,14 +76,15 @@ public:
     static constexpr int kDefaultPort = 7845;
     // The packets' layout (2: the host's state sent at the start); two copies must have the same to play, and the
     // lobby shows only matches of this one (the launcher asks with it too)
-    static constexpr int kProtocol = 10; // (3: the version said in the hello and to the service; 4: the welcome's flags;
+    static constexpr int kProtocol = 11; // (3: the version said in the hello and to the service; 4: the welcome's flags;
                                         // 5: the welcome's program words, so two regions' sets play together;
                                         // 6: each player's name in the hello and the welcome, and the chat;
                                         // 7: two players at each machine, as the welcome says, and each one's controls;
                                         // 8: up to four machines, the host between them: the people at each in the
                                         // hello, the machines and their players as the match begins, each machine's
                                         // controls and the chat's lines passed on by the host;
-                                        // 10: combined with upstream first-to, spectators and mode events (upstream 9))
+                                        // 10: combined with upstream first-to, spectators and mode events (upstream 9);
+                                        // 11: asymmetric three-person rosters and their shared fighter ownership)
     static constexpr int kMostSeats = 2;    // players at one machine
     static constexpr int kMostMachines = 4; // machines in a match: the host's, and up to three joining
     static constexpr int kMostAhead = 8;    // frames run on guessed controls at most
@@ -173,6 +174,7 @@ public:
     // or to the farthest in a match of more machines (a joining machine's to the host and on to the farthest of the
     // others); and how long since a machine this one plays with was last heard (the longest)
     int Ping() const;
+    int DirectRtt(int machine) const; // measured direct packet round trip in ms; -1 until sampled or if routed via the host
     int Delay() const {
         return delay;
     }
@@ -357,7 +359,7 @@ private:
         std::map<uint64_t, uint32_t> hashes;
         uint32_t echo = 0;       // its time on its last packet
         uint64_t echoAt = 0;     // ... and when it came, ours
-        double ping = 0;
+        double ping = -1;
         int farthest = 0;        // (from the host) the longest ping of the other joining machines to it, ms
         // (the chat to it: the lines it hasn't said it has, and when they were last sent; and the lines from it, all
         // those before this number)
@@ -390,7 +392,7 @@ private:
     int waitTicks = 0;
     uint64_t waitedAt = UINT64_MAX;
     // (for the report)
-    uint64_t rollbacks = 0, rerun = 0, waits = 0, lastReport = 0, reportedRollbacks = 0;
+    uint64_t rollbacks = 0, rerun = 0, waits = 0, predictionWaits = 0, lastReport = 0, reportedRollbacks = 0;
     int mostRerun = 0;
     double worst = 0;  // the longest a frame took, its rollback with it (seconds)
     uint64_t over = 0; // ... and how many took longer than a frame's time

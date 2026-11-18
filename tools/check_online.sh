@@ -25,6 +25,9 @@
 # started once the host has the one before; their lines of the chat go through the host). MACHINES=3: three, the host's
 # two (players 1 and 3) and one at each of the others (2, then 4).
 # PEOPLE lists the people at each machine in arrival order, host first (1,2,1 or 1,1,2 also test a joining pair).
+# With three people use PEOPLE=1,1,1, 2,1 or 1,2 and TAG_TEAM=3 (2 vs 1) or 4 (1 vs 2).
+# NET_PROFILES lists one outgoing MS:JITTER:LOSS profile per machine, host first. NET_DELAY chooses host delay.
+# MVC_CUSTOM=1 exercises the alternative Cross Fever rules on the host and in the offline replay.
 # FIRST_TO=0|1|2 checks the host's Casual/FT5/FT10 choice against different choices on all joining machines.
 # WATCH=1 adds a viewer after play starts and compares its confirmed frame hashes with the host's.
 #
@@ -47,14 +50,32 @@ if [ -z "$layout" ]; then
         2) layout=1,1 ;; 2f) layout=2,2 ;; 3f) layout=2,1,1 ;; 4f) layout=1,1,1,1 ;;
     esac
 fi
+tag_mode=
 case "$layout" in
+    1,1,1|1,2|2,1)
+        case "${TAG_TEAM:-3}" in 3|4) tag_mode=${TAG_TEAM:-3} ;; *) echo "Three humans require TAG_TEAM=3 or 4"; exit 1 ;; esac
+        four= ;;
     1,1) four= ;;
-    2,2|2,1,1|1,2,1|1,1,2|1,1,1,1) four=1 ;;
-    *) echo "PEOPLE: 1,1; 2,2; 2,1,1; 1,2,1; 1,1,2; or 1,1,1,1"; exit 1 ;;
+    2,2|2,1,1|1,2,1|1,1,2|1,1,1,1) four=1; tag_mode=2 ;;
+    *) echo "PEOPLE: 1,1; 1,1,1; 1,2; 2,1; 2,2; 2,1,1; 1,2,1; 1,1,2; or 1,1,1,1"; exit 1 ;;
 esac
 IFS=, read -ra counts <<< "$layout"
 machines=${#counts[@]}
 hostPeople=${counts[0]}
+profiles=()
+if [ -n "${NET_PROFILES:-}" ]; then
+    IFS=, read -ra profiles <<< "$NET_PROFILES"
+    if [ "${#profiles[@]}" -ne "$machines" ] || [[ "$NET_PROFILES" = *, ]]; then
+        echo "NET_PROFILES requires one comma-separated profile per machine, host first"; exit 1
+    fi
+    for profile in "${profiles[@]}"; do
+        if ! [[ "$profile" =~ ^[0-9]{1,4}:[0-9]{1,4}:([0-9]{1,2}|100)$ ]]; then
+            echo "NET_PROFILES expects MS:JITTER:LOSS, for example 40:10:2"; exit 1
+        fi
+    done
+fi
+host_delay=${NET_DELAY:-2}
+case "$host_delay" in [0-8]) ;; *) echo "NET_DELAY must be 0 through 8"; exit 1 ;; esac
 first_to=${FIRST_TO:-}
 case "$first_to" in ""|0|1|2) ;; *) echo "FIRST_TO must be 0, 1 or 2"; exit 1 ;; esac
 guest_set=""
@@ -96,10 +117,16 @@ if "build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$1=="stage" && $2=="St
 fi
 if [ -n "$first_to" ]; then play="$play,online_set=$first_to"; fi
 # (the people at each machine, and the made-up play's players)
-if [ -n "$four" ]; then
+if [ -n "$tag_mode" ]; then
     # (the on-or-off features marked for matches: kFeatureMatch, 512 in --list-features's flags)
     modes=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' 'NF==5 && int($3 / 512) % 2 == 1 {print $1}' | paste -sd, -)
-    play="$play,tag_team=2${modes:+,$modes}"
+    play="$play,tag_team=$tag_mode${modes:+,$modes}"
+fi
+if [ "${MVC_CUSTOM:-0}" = 1 ]; then
+    if [ "$GAME" != mvsc ] || [ -z "$tag_mode" ]; then
+        echo "MVC_CUSTOM=1 needs an MVC versus layout with three or four people"; exit 1
+    fi
+    play="$play,cross_fever_earned_meter=1,cross_fever_arcade_time=1,cross_fever_partner_tag=1,cross_fever_taunt=2,cross_fever_reselect=1"
 fi
 # (the match has them but for the cheats, which are off on all sides: the replay is given the same)
 cheats=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$2=="Cheats" {print $1}')
@@ -108,9 +135,12 @@ port=$((7900 + RANDOM % 1000))
 side() { # host | join..., then the program's arguments
     name=$1; shift
     rom=$ROM; [ "$name" != host ] && rom=$JOIN_ROM
+    case "$name" in host) index=0 ;; join) index=1 ;; join*) index=${name#join} ;; watch) index=$machines ;; esac
+    profile=${profiles[$index]:-50:25:5}
+    echo "$name sending with $profile ms:jitter:loss" >&2
     exec "build/$GAME/$GAME" --rom "$rom" --headless --frames "$frames" --settings "$work/online-$name.ini" \
         --eeprom "$work/online-$name.eeprom" --hash-log "$work/online-$name.txt" --net-service off \
-        --net-fake 50:25:5 "$@" 2> "$work/online-$name.err"
+        --net-fake "$profile" "$@" 2> "$work/online-$name.err"
 }
 named() { # host | join... -> its name
     case "$1" in host) echo "Host P1" ;; join) echo "Joiner" ;; *) echo "Joiner ${1#join}" ;; esac
@@ -122,7 +152,7 @@ said() { # FILE PATTERN: once a line of FILE has it (10 seconds at most)
     done
     return 1
 }
-side host --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
+side host --net-delay "$host_delay" --auto "11:0:$hostPeople" --features "$play" --host "$port" --record "$work/online-host.mov" ${arcade:+--net-arcade} \
     --net-people "$hostPeople" --net-name "Host P1" --net-say "hello from the host" ${watch_args[@]+"${watch_args[@]}"} &
 pids=$!
 # (the joining side once the host waits: its socket is open by then, however long the game took to start)
@@ -216,6 +246,13 @@ fi
 # (every machine knows every player's name, and has every other machine's line of the chat: sent straight to it, or
 # through the host, through the lost packets)
 case "$layout" in
+    1,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2" ;;
+    1,2|2,1)
+        case "$layout/$tag_mode" in
+            2,1/3|1,2/4) players="player 1 Host P1, player 2 Joiner" ;;
+            *) players="player 1 Joiner, player 2 Host P1" ;;
+        esac
+        [ "$layout" = 2,1 ] && players="$players, player 3 Host P1" || players="$players, player 3 Joiner" ;;
     1,1) players="player 1 Host P1, player 2 Joiner" ;;
     2,2) players="player 1 Host P1, player 2 Joiner, player 3 Host P1, player 4 Joiner" ;;
     2,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Host P1, player 4 Joiner 2" ;;
@@ -224,6 +261,16 @@ case "$layout" in
     1,1,1,1) players="player 1 Host P1, player 2 Joiner 1, player 3 Joiner 2, player 4 Joiner 3" ;;
 esac
 for name in host $joiners; do
+    if ! grep -Eq "^online: the match is on: .* \($host_delay frames? of delay\)$" "$work/online-$name.err"; then
+        echo "FAILED: $name did not take host delay $host_delay"; status=1
+    fi
+    if [ "${MVC_CUSTOM:-0}" = 1 ]; then
+        rules=$(sed -n 's/^online: settled match rules //p' "$work/online-$name.err" | head -1)
+        for rule in "tag_team=$tag_mode" cross_fever=1 cross_fever_earned_meter=1 cross_fever_arcade_time=1 \
+            cross_fever_partner_tag=1 cross_fever_taunt=2 cross_fever_reselect=1; do
+            case ",$rules," in *",$rule,"*) ;; *) echo "FAILED: $name did not take $rule"; status=1 ;; esac
+        done
+    fi
     if ! grep -qxF "online: $players" "$work/online-$name.err"; then
         echo "FAILED: the $name doesn't have every player's name ($players)"
         status=1

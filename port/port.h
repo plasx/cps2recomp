@@ -82,6 +82,8 @@ struct Options {
     uint64_t rollbackTest = 0;  // --rollback-test SEED: each frame run as online play's rollback would (RollbackTest)
     bool online = false;        // --host or --join: online play (netplay.h), as `net` says
     Netplay::Settings net;
+    int netDelayOverride = -1; // --net-delay overrides the saved host preference, including when explicitly zero
+    int launcherNetDelay = -1; // the launcher's global Online setting, below an explicit per-game choice
     std::string netSay;         // --net-say [FRAME:]TEXT: (tests) the line said in the chat at FRAME of the match (120)
     uint64_t netSayAt = 120;
     // --net-command FRAME:TEXT, again for more: (tests) an event this side makes at FRAME of the match (Netplay::Command:
@@ -315,7 +317,7 @@ struct Port {
     void OnlineEvent(int player, const std::string &text);
     // Esc's overlay in a match: its rows (the host's mode, this player's fighters, leaving), and a menu press on it
     struct OnlineRow {
-        int kind = 0; // 0 the mode, 1 a fighter's row (`feature`), 2 leave
+        int kind = 0; // 0 the mode, 1 a fighter's row (`feature`), 2 leave, 3 local display option
         std::string feature, title;
     };
     std::vector<OnlineRow> OnlineRows() const;

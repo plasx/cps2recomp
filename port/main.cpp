@@ -125,11 +125,12 @@ namespace {
 } // namespace
 
 namespace {
-    constexpr uint32_t kStateVersion = 12; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
+    constexpr uint32_t kStateVersion = 13; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
                                           // 8: widescreen's camera a frame ago; 9: a guest board's, runtime/guest.h;
                                           // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: live tag swaps (upstream),
                                           // or MVC starting order/Cross Fever clock (the four-player preview);
-                                          // 12: both branches combined; legacy MVC 11 parts are identified by their marks)
+                                          // 12: both branches combined; legacy MVC 11 parts are identified by their marks;
+                                          // 13: MVC partner-tag input edges)
 
     // (a path is UTF-8 text: by its wide name on Windows, where a folder with an accent is not in the system's code page)
     FILE *OpenFile(const std::string &path, const wchar_t *wideMode, const char *mode) {
@@ -618,10 +619,12 @@ void RegisterPortFeatures() {
                                       kFeatureSession, {"Off", "Player 1", "Player 2", "Both fighters", "By distance"}});
     }
     // (online play's readout, each player's own: Port::Shown)
-    TheGame().features.push_back({"online_ping", "Online", "Ping",
-                                  "During an online match, the time a packet takes to the other player and back (the farthest of "
-                                  "them, with more than two machines), at the bottom of the picture (\"PING 42 ms\").",
+    TheGame().features.push_back({"online_ping", "Display", "Show network ping",
+                                  "The host sees its highest estimated ping to a guest. A guest sees the estimate to the farthest player through the host.",
                                   kFeatureEnhanced});
+    TheGame().features.push_back({"online_link_rtt", "Display", "Show direct link RTT",
+                                  "Show the measured round-trip time to each directly connected machine, labelled by player number. Guests see their link to the host.",
+                                  0});
     // (the scene export: Port::SaveScene, SceneClip; scene.h)
     TheGame().pages.push_back({"Scene export", "Game",
                                "The picture taken apart: each of the board's layers by itself, as pictures with nothing where a "
@@ -670,24 +673,33 @@ void RegisterPortFeatures() {
                                   "Others can join you online while you play on as you like (modes, the menu, save states): "
                                   "the match's code is at the bottom of the screen to give them, and with your name from the "
                                   "launcher's Online page it's in the lobby too. When someone joins, the game starts over "
-                                  "for the match. This row again stops hosting.",
+                                  "for the match. Choose Unlisted match to share the code privately. This row again stops hosting.",
                                   nullptr});
     // (names: shown unless hidden, whatever the preset, so a switch that hides them)
-    TheGame().features.push_back({"online_hide_names", "Online", "Hide names",
+    TheGame().features.push_back({"online_hide_names", "Display", "Hide online player names",
                                   "During an online match, each player's name is under their life bar (the name each gave on "
                                   "the launcher's Online page): this hides them.",
                                   0});
-    TheGame().features.push_back({"online_delay", "Online", "Input delay",
+    TheGame().features.push_back({"online_delay", "Display", "Show input delay",
                                   "During an online match, how many frames each player's own controls are held back, at the bottom "
                                   "of the picture (\"DELAY 2\"): the host chooses it.",
                                   0});
-    // (a match of four, tag team's 2 vs 2 on the host: the people at each machine, netplay.h)
+    TheGame().features.push_back({"online_hide_streak", "Display", "Hide online win streak",
+                                  "Hide the win streak under the player names on this screen.", 0});
+    TheGame().features.push_back({"online_host_delay", "Online", "Host input delay",
+                                  "Frames to wait before applying each person's controls. A larger delay can reduce corrections "
+                                  "on long routes. Use launcher setting follows the global delay (default 2). An explicit --net-delay overrides both.",
+                                  0, {"Use launcher setting", "0 frames", "1 frame", "2 frames", "3 frames", "4 frames",
+                                      "5 frames", "6 frames", "7 frames", "8 frames"}});
+    TheGame().features.push_back({"online_unlisted", "Online", "Unlisted match",
+                                  "Keep matches you host out of the public lobby, even with a player name. Share the code or "
+                                  "host address with the people you want to join. Anyone who has the code can use it.", 0});
+    // How many physical controllers at this machine will play in the match.
     if (std::any_of(TheGame().features.begin(), TheGame().features.end(), [](const Feature &f) { return !strcmp(f.name, tag::kFeature); })) {
         TheGame().features.push_back({"online_people", "Online", "People at this machine",
-                                      "In an online match of four (Tag team at 2 vs 2 on the host): 1, each of the four on their own "
-                                      "machine, or 2, with this machine's player 1 and player 2 controls (two machines of two, or one "
-                                      "of two with two of one). The match begins when all four are there. In a match of two, one at "
-                                      "each machine.",
+                                      "Choose 1 for your own controller, or 2 for two people sharing this machine in a tag match. "
+                                      "The host sets the number of people on each team under Tag team. With three or four machines "
+                                      "and one controller each, everyone chooses 1.",
                                       0, {"1", "2"}});
     }
     // (display_picture: the GPU's picture, --video gpu, unless the CPU's is chosen, --video native; docs/NATIVE_VIDEO.md; read
@@ -1657,14 +1669,15 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     uint32_t *const px = turned ? upright.data() : pixels.data();
     const int W = turned ? +Video::kHeight : across, H = turned ? across : +Video::kHeight;
     DrawHud(px, W, H, panels, turned ? +port::kHudText : boxParts | port::kHudText);
-    // A line at the bottom, in the middle (`up` lines higher)
+    const int bottomInset = net && !connecting ? TheGame().onlineBottomInset : 0;
+    // A line above the native gauges, in the middle (`up` pixels higher).
     auto status = [&](const char *text, int up) {
         if (!notices) {
             return; // (a video's picture: Port::VideoFrame)
         }
         const recomp::text::Canvas canvas{px, W, H};
         const float width = recomp::text::TextWidth(text, 1);
-        const float x = (W - width) / 2, y = static_cast<float>(H - 11 - up);
+        const float x = (W - width) / 2, y = static_cast<float>(H - 11 - bottomInset - up);
         canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, 220});
         canvas.Text(x, y, 1, 0, {255, 255, 255, 255}, text);
         if (panels) {
@@ -1714,6 +1727,20 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         }
         if (*text) {
             status(text, said++ * 14);
+        }
+        if (notices && !net->Watching() && FeatureOn("online_link_rtt")) {
+            std::string routes = "RTT";
+            for (int m = 0; m < net->Machines(); ++m) {
+                if (m == net->Local() || (!net->Hosting() && m != 0)) continue;
+                routes += "   ";
+                for (int p = 0; p < net->People(m); ++p) {
+                    if (p) routes += "+";
+                    routes += "P" + std::to_string(net->Player(m, p) + 1);
+                }
+                const int rtt = net->DirectRtt(m);
+                routes += rtt < 0 ? " --" : " " + std::to_string(rtt) + " ms";
+            }
+            status(routes.c_str(), said++ * 14);
         }
         if (net->Watching()) status("SPECTATING", said++ * 14);
         if (!cameIn) {
@@ -1810,7 +1837,7 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             }
         }
         for (int side = 0; side < 2 && (!net->Set().Target() || teams); side++) {
-            float y = 38.0f;
+            float y = static_cast<float>(TheGame().onlineNamesY);
             std::vector<std::pair<std::string, bool>> lines; // (each line, and whether it is drawn bright)
             bool named = false;
             const int point = tag::OnPoint(side);
@@ -1830,12 +1857,13 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
                 under(side, y, lines[n].first, lines[n].second ? recomp::text::Color{255, 255, 255, 255} : recomp::text::Color{150, 150, 160, 255});
                 y += 12;
             }
-            if (streak[side] >= 2) {
+            if (streak[side] >= 2 && !FeatureOn("online_hide_streak")) {
                 under(side, y, "STREAK " + std::to_string(streak[side]), {255, 210, 80, 255});
             }
         }
         // The chat: its lines at the left, above the super gauges, the newest lowest, and the line being typed under them
         float y = H - 44.0f;
+        if (bottomInset) y = std::min(y, static_cast<float>(H - 11 - bottomInset - said * 14));
         auto line = [&](const std::string &text, recomp::text::Color colour) {
             const float width = recomp::text::TextWidth(text.c_str(), 1);
             canvas.Fill(7, y - 2, width + 6, 12, {20, 22, 30, 200});
@@ -1868,6 +1896,27 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         const recomp::text::Canvas canvas{px, W, H};
         const std::vector<OnlineRow> rows = OnlineRows();
         std::vector<std::pair<std::string, recomp::text::Color>> lines;
+        if (FindFeature("cross_fever")) {
+            const auto mode = tag::Chosen();
+            const Feature *layout = FindFeature(tag::kFeature);
+            const bool independent = tag::Routing() && FeatureOn("cross_fever");
+            if (layout && static_cast<size_t>(mode) < layout->choices.size()) {
+                const std::string title = std::string(recomp::Tr("Tag team")) + ": " + recomp::Tr(layout->choices[mode]) +
+                    "   " + recomp::Tr("Cross Fever") + ": " + recomp::Tr(independent ? "On" : "Off");
+                lines.push_back({title, {170, 220, 250, 255}});
+            }
+            const char *duo = "Duo: point controls both fighters";
+            if (independent) {
+                switch (mode) {
+                case tag::kCoop: duo = "Duo: independent on the co-op team"; break;
+                case tag::kVersus: duo = "Duo: independent on both teams"; break;
+                case tag::kTwoVsOne: duo = "Duo: independent left / shared right"; break;
+                case tag::kOneVsTwo: duo = "Duo: shared left / independent right"; break;
+                default: break;
+                }
+            }
+            lines.push_back({recomp::Tr(duo), {170, 220, 250, 255}});
+        }
         for (int n = 0; n < static_cast<int>(rows.size()); n++) {
             const OnlineRow &row = rows[n];
             std::string text;
@@ -1879,6 +1928,8 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
                 const int value = it != onlinePicks.end() ? it->second : FeatureValue(row.feature.c_str());
                 const char *name = feature && value >= 0 && value < static_cast<int>(feature->choices.size()) ? feature->choices[value] : "?";
                 text = row.title + ": < " + name + " >";
+            } else if (row.kind == 3) {
+                text = recomp::Tr(row.title) + ": " + recomp::Tr(FeatureOn(row.feature.c_str()) ? "On" : "Off");
             } else {
                 text = row.title;
             }
@@ -1891,14 +1942,15 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             width = std::max(width, recomp::text::TextWidth(line.first.c_str(), 1));
         }
         const float x = (W - width) / 2;
-        float y = H / 2.0f - 11.0f * static_cast<float>(lines.size());
-        canvas.Fill(x - 8, y - 6, width + 16, 22.0f * static_cast<float>(lines.size()) + 4, {20, 22, 30, 235});
+        const int lineHeight = std::min(22, (H - 16) / static_cast<int>(lines.size()));
+        float y = (H - lineHeight * static_cast<int>(lines.size())) / 2.0f;
+        canvas.Fill(x - 8, y - 6, width + 16, lineHeight * static_cast<float>(lines.size()) + 4, {20, 22, 30, 235});
         if (panels) {
-            panels->push_back({static_cast<int>(x) - 8, static_cast<int>(y) - 6, static_cast<int>(width) + 17, 22 * static_cast<int>(lines.size()) + 4});
+            panels->push_back({static_cast<int>(x) - 8, static_cast<int>(y) - 6, static_cast<int>(width) + 17, lineHeight * static_cast<int>(lines.size()) + 4});
         }
         for (const auto &line : lines) {
             canvas.Text(x, y, 1, 0, line.second, line.first.c_str());
-            y += 22;
+            y += lineHeight;
         }
     } else if (net && leaving) {
         const recomp::text::Canvas canvas{px, W, H};
@@ -2880,14 +2932,24 @@ std::filesystem::path LauncherFolder() {
 }
 
 namespace {
-    std::string LauncherName() {
-        const std::filesystem::path folder = LauncherFolder();
-        if (folder.empty()) {
-            return "";
+    void ApplyHostSettings(Netplay::Settings &settings, const Options &options, bool fromMenu) {
+        const int chosen = FeatureSetting("online_host_delay");
+        int global = options.launcherNetDelay;
+        if (fromMenu || (global < 0 && chosen == 0 && options.netDelayOverride < 0)) {
+            const std::filesystem::path folder = LauncherFolder();
+            if (!folder.empty()) {
+                recomp::Ini prefs(folder / "launcher.ini");
+                prefs.load();
+                if (fromMenu) settings.name = prefs.get("online", "name");
+                const std::string saved = prefs.get("online", "delay");
+                if (global < 0 && saved.size() == 1 && saved[0] >= '0' && saved[0] <= '8') global = saved[0] - '0';
+            }
         }
-        recomp::Ini prefs(folder / "launcher.ini");
-        prefs.load();
-        return prefs.get("online", "name");
+        if (fromMenu) settings.listed = !settings.name.empty();
+        settings.delay = global >= 0 ? global : Netplay::kDefaultDelay;
+        if (chosen > 0) settings.delay = chosen - 1;
+        if (options.netDelayOverride >= 0) settings.delay = options.netDelayOverride;
+        if (FeatureOn("online_unlisted")) settings.listed = false;
     }
 }
 
@@ -2905,8 +2967,7 @@ void Port::HostFromMenu() {
     settings.solo = true;
     settings.arcade = false;
     settings.port = Netplay::kDefaultPort;
-    settings.name = LauncherName();
-    settings.listed = !settings.name.empty();
+    ApplyHostSettings(settings, opt, true);
     settings.renewCode.clear();
     settings.renewSecret.clear();
     waitingHost = std::make_unique<Netplay>(settings);
@@ -3063,6 +3124,11 @@ std::vector<Port::OnlineRow> Port::OnlineRows() const {
             rows.push_back({1, "team_" + std::to_string(me + 1) + "_" + std::to_string(n + 1), std::string("Tag team: your ") + kOrder[n]});
         }
     }
+    rows.push_back({3, "online_ping", "Show ping"});
+    rows.push_back({3, "online_delay", "Show input delay"});
+    rows.push_back({3, "online_hide_names", "Hide player names"});
+    rows.push_back({3, "online_hide_streak", "Hide win streak"});
+    rows.push_back({3, "online_link_rtt", "Show direct link RTT"});
     rows.push_back({2, "", net->Hosting() && hostedFromMenu ? "Leave the match (play alone)" : "Leave the match"});
     return rows;
 }
@@ -3114,6 +3180,10 @@ void Port::OnlineMenu(unsigned pressed) {
             onlinePicks[row.feature] = next;
             net->Command(row.feature + "=" + std::to_string(next));
         }
+    } else if (row.kind == 3 && (way || (pressed & recomp::kMenuConfirm))) {
+        const int value = FeatureOn(row.feature.c_str()) ? 0 : 1;
+        SetFeatureValue(row.feature.c_str(), value);
+        if (ownFeatures.count(row.feature)) ownFeatures[row.feature] = value;
     } else if (row.kind == 2 && (pressed & recomp::kMenuConfirm)) {
         LeaveOnline();
     }
@@ -3160,6 +3230,7 @@ bool Port::StartOnline(std::string &error) {
         error = "online play: not with --rollback-test, --movie or --state-load";
         return false;
     }
+    if (opt.net.hosting) ApplyHostSettings(opt.net, opt, false);
     net = std::make_unique<Netplay>(opt.net);
     zoom.Forbid(); // (both players see the whole picture, as the board shows it)
     if (opt.headless && !net->Arcade()) {
@@ -3377,11 +3448,21 @@ void Port::RunFrame() {
         const size_t first = opt.menuTest.find(':'), second = opt.menuTest.find(':', first + 1);
         const std::string keys =
             opt.menuTest.substr(first + 1, second == std::string::npos ? std::string::npos : second - first - 1);
-        menu.Open(true);
+        const bool onlineMenu = net != nullptr;
+        if (onlineMenu) leaving = true;
+        else menu.Open(true);
         for (const char key : keys) {
-            MenuAct(menu.Buttons(key == 'u' ? kUp : key == 'd' ? kDown : key == 'l' ? kLeft : key == 'r' ? kRight : key == 'a' ? kPunch1 : 0));
+            if (onlineMenu && !leaving) break;
+            const unsigned button = key == 'u' ? recomp::kMenuUp : key == 'd' ? recomp::kMenuDown : key == 'l' ? recomp::kMenuLeft
+                : key == 'r' ? recomp::kMenuRight : key == 'a' ? recomp::kMenuConfirm : 0;
+            if (onlineMenu) OnlineMenu(button);
+            else MenuAct(menu.Press(button));
         }
-        if (second != std::string::npos && menu.IsOpen()) {
+        if (second != std::string::npos && net && leaving) {
+            std::vector<uint32_t> pixels;
+            Shown(pixels);
+            WritePng(opt.menuTest.substr(second + 1).c_str(), pixels.data(), ShownWidth(), Video::kHeight);
+        } else if (second != std::string::npos && menu.IsOpen()) {
             std::vector<uint32_t> pixels;
             uint32_t width = 0, height = 0;
             // (CPS2RECOMP_MENU_SIZE=WxH: at that size, as on a screen of it; the menu compact as the Arcade monitor page says)
@@ -3394,7 +3475,8 @@ void Port::RunFrame() {
             menu.Draw(pixels.data(), static_cast<int>(width), static_cast<int>(height));
             WritePng(opt.menuTest.substr(second + 1).c_str(), pixels.data(), width, height);
         }
-        menu.Close();
+        if (onlineMenu) leaving = false;
+        else menu.Close();
     }
     memcpy(machine->players, pad, sizeof(pad));
     RapidFire();
@@ -3766,7 +3848,7 @@ void Usage() {
             "  --net-invite TO:FROM   (hosting) the player TO in the launcher's waiting room invited, from FROM (ids;\n"
             "                         --net-name the inviter's name)\n"
             "  --net-invite-name NAME ... TO's name, as the wait says it\n"
-            "  --net-delay N          (hosting) frames each player's controls are held back, 2 unless said (0-8)\n"
+            "  --net-delay N          (hosting) override the game and launcher input delay for everyone (0-8 frames)\n"
             "  --net-fake MS[:JIT[:LOSS]]  (tests) each packet sent MS ms late, give or take JIT, LOSS in 100 lost\n"
             "  --test-switch FROM:TO  the operator's test switch held from frame FROM to TO\n"
             "  --music-test FRAMES    each piece of the game's music in turn on the board, FRAMES each (with the test\n"
@@ -3945,8 +4027,14 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.net.inviteName = next();
         } else if (a == "--net-service") {
             o.net.service = next();
-        } else if (a == "--net-delay") {
-            o.net.delay = atoi(next());
+        } else if (a == "--net-delay" || a == "--launcher-net-delay") {
+            const std::string value = next();
+            if (value.size() != 1 || value[0] < '0' || value[0] > '8') {
+                fprintf(stderr, "%s needs a frame count from 0 to 8.\n", a.c_str());
+                return false;
+            }
+            if (a == "--net-delay") o.netDelayOverride = value[0] - '0';
+            else o.launcherNetDelay = value[0] - '0';
         } else if (a == "--net-people") {
             o.net.people = std::clamp(atoi(next()), 1, port::Netplay::kMostSeats);
         } else if (a == "--net-fake") {

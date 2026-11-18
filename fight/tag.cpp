@@ -50,7 +50,8 @@ namespace {
 
 Mode Chosen() {
     const int value = FeatureValue(kFeature);
-    return value == kCoop ? kCoop : value == kVersus ? kVersus : kOff;
+    const int last = g_d.threePlayers ? kOneVsTwo : kVersus;
+    return value >= kOff && value <= last ? static_cast<Mode>(value) : kOff;
 }
 
 int Person(int side, int pick) {
@@ -59,6 +60,10 @@ int Person(int side, int pick) {
         return side == 0 ? pick : -1;
     case kVersus:
         return side + 2 * pick;
+    case kTwoVsOne:
+        return side == 0 && pick == 1 ? 2 : side;
+    case kOneVsTwo:
+        return side == 1 && pick == 1 ? 2 : side;
     default:
         return pick == 0 ? side : -1;
     }
@@ -138,8 +143,17 @@ void Register(const Description &description) {
                                   "character (the first person first); in a fight the panel is whoever's character is on point, "
                                   "and the partner tags in with HP+HK. The labels under the bars say who is on point.",
                                   kFeatureMatch, {"Off", "Co-op vs. computer", "2 vs 2"}});
-    // (online: four players in 2 vs 2; the alternative modes that would keep the routing off are off in a match)
-    TheGame().matchPlayers = [] { return Chosen() == kVersus ? 4 : 2; };
+    if (g_d.threePlayers) {
+        auto &choices = TheGame().features.back().choices;
+        choices.push_back("2 vs 1");
+        choices.push_back("1 vs 2");
+    }
+    TheGame().matchPlayers = [] {
+        const Mode mode = Chosen();
+        if (mode == kTwoVsOne || mode == kOneVsTwo) return 3;
+        return mode == kVersus ? 4 : 2;
+    };
+    TheGame().matchOwner = Person;
 }
 
 } // namespace cps2recomp::tag
