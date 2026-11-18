@@ -5,6 +5,7 @@
 #include "game_info.h"
 
 #include "bindings.h"
+#include "gamepad_slots.h"
 #include "port.h"
 #include "png_write.h"
 #include "present.h"
@@ -493,7 +494,8 @@ int RunWindowed(Port &port) {
     std::vector<float> musicMade;
     bool musicSilent = false;
 
-    std::vector<SDL_Gamepad *> gamepads;
+    GamepadSlots controllers;
+    const auto &gamepads = controllers.Pads();
     // The in-game menu: opened and closed by Esc, F1, a gamepad stick's click or its Start and Select
     // together (the game is left from its "Quit game"). While it is open the game stands still and the
     // controls work the menu; buttons held as it closes do not reach the game until let go.
@@ -711,18 +713,10 @@ int RunWindowed(Port &port) {
                 }
                 break;
             case SDL_EVENT_GAMEPAD_ADDED:
-                if (SDL_Gamepad *gp = SDL_OpenGamepad(ev.gdevice.which)) {
-                    gamepads.push_back(gp);
-                }
+                controllers.Added(ev.gdevice.which);
                 break;
             case SDL_EVENT_GAMEPAD_REMOVED:
-                for (auto it = gamepads.begin(); it != gamepads.end(); ++it) {
-                    if (SDL_GetGamepadID(*it) == ev.gdevice.which) {
-                        SDL_CloseGamepad(*it);
-                        gamepads.erase(it);
-                        break;
-                    }
-                }
+                controllers.Removed(ev.gdevice.which);
                 break;
             default: break;
             }
@@ -775,6 +769,7 @@ int RunWindowed(Port &port) {
                     down += keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
                 }
                 for (SDL_Gamepad *gp : gamepads) {
+                    if (!gp) continue;
                     if (ZoomHeld(gp)) {
                         const int x = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTX), y = SDL_GetGamepadAxis(gp, SDL_GAMEPAD_AXIS_LEFTY);
                         const int right = SDL_GetGamepadButton(gp, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || x > kDead;
@@ -795,6 +790,7 @@ int RunWindowed(Port &port) {
             bool trigger = false;
             const bool stepOnTrigger = !PadInputBound(g_bindings, Table(), {-1, SDL_GAMEPAD_AXIS_LEFT_TRIGGER});
             for (size_t i = 0; i < gamepads.size() && static_cast<int>(i) < Players(); i++) {
+                if (!gamepads[i]) continue;
                 pads[i] |= ReadGamepad(gamepads[i], static_cast<int>(i));
                 const bool left = stepOnTrigger && SDL_GetGamepadAxis(gamepads[i], SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > kDead;
                 trigger = trigger || left;
@@ -1140,9 +1136,7 @@ int RunWindowed(Port &port) {
             WritePng(shot, pixels.data(), static_cast<uint32_t>(width), static_cast<uint32_t>(height));
         }
     }
-    for (SDL_Gamepad *gp : gamepads) {
-        SDL_CloseGamepad(gp);
-    }
+    controllers.Close();
     if (audio) {
         SDL_DestroyAudioStream(audio);
     }

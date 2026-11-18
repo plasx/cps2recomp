@@ -84,6 +84,13 @@ clean:
 endif
 
 .PHONY: check-netplay check-online-service check-crossfever-reset
+.PHONY: check-gamepad-slots
+check-gamepad-slots:
+	@mkdir -p build/checks
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror tools/check_gamepad_slots.cpp \
+		$(shell pkg-config $(if $(filter 1,$(SDL_STATIC)),--static) --cflags --libs sdl3) -o build/checks/gamepad-slots
+	@build/checks/gamepad-slots
+
 check-netplay:
 	@tools/check_netplay.sh
 
