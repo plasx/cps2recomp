@@ -79,6 +79,8 @@ hosting. Every machine with one player selects **People at this machine → 1**,
 | 3 | 1 vs 2 | P1 owns both | P2 and P3 |
 | 4 | 2 vs 2 | P1 and P3 | P2 and P4 |
 
+P1 and P2 began as the two opposing arcade starters. In four-player rooms, P3 takes the left partner and P4 the right partner. Tags swap the active fighter, while each person keeps their assigned fighter in Cross Fever. [Illustrated layouts](screenshots/mvsc/mvc-roster-routing.png).
+
 Player numbers above assume one controller per machine. With three humans on two machines, the two at one
 machine receive the split team, including when the solo owner hosts. Set **Cross Fever → On** for independent
 Duo controls on a split team. For the requested earned-meter game, select **Cross Fever meter → Arcade** and

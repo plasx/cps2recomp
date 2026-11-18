@@ -18,8 +18,11 @@ teammates can give different commands for the entire time they are on screen tog
 Tommy McLeroy wrote the local Tag team routing for X-Men vs. Street Fighter, then included it in the MVC
 port. It switches the shared arcade panel to the person whose fighter is on point. Morphus56K added the
 per-fighter Cross Fever input path and extended the project's UDP rollback to four participating machines.
-Tommy's later **Tag team battle** is a separate alternative mode for two online players who select teams. It
-can be chosen during a two-person match. Choose the four-owner Tag team layout before hosting.
+Tommy's later **Tag team battle** is an alternative mode for two online players in games that register
+it, including Street Fighter Alpha 2. MVC uses the arcade game's own tag combat. Choose MVC's **Tag team**
+layout before hosting. In classic 2 vs 2, control follows the point fighter. Enabling **Cross Fever** gives
+each split-team owner independent control during a Duo. The separate [input fix in #413](https://github.com/tmcleroy/cps2recomp/pull/413)
+covers a reserve player's tag chord combining with a point player's quarter-circle in classic MVC 2 vs 2.
 [Original Tag team](https://github.com/tmcleroy/cps2recomp/commit/ad2fd20)
 · [MVC port](https://github.com/tmcleroy/cps2recomp/commit/1dd905b)
 · [Cross Fever](https://github.com/tmcleroy/cps2recomp/commit/8b792e7)

@@ -150,6 +150,54 @@ measured hop. If a code lookup succeeds but no UDP reply arrives, try the same h
 forwarded UDP port, then try a different host. This distinguishes a failed connection from rollback stalls after
 play has started. Share logs with invite codes and network addresses removed.
 
+### Protocol 11 after the upstream instant-replay merge
+
+On macOS arm64, the MVC interpreter built from `a64294a` used protocol 11
+(`SHA256=4dbb8488a3fd1b16b01b1f20e89e93fc37b690a249eaead0d4b214c8cf6dcb1b`). Running 1,200 frames with
+four playing processes, a spectator and the unequal link profiles above gave 1,196 common confirmed player
+frames and 1,058 matching viewer frames. Offline replay reproduced the common prefix. Both three-human
+layouts sustained 792 frames of simultaneous Duo. Arcade continue and Everyone reselects each reached
+a second human fight after a left-side KO. The 12 native protocol groups, 45 Worker tests and separate
+spectator-service check passed. These runs used one computer.
+
+| MVC comparison | Animation | Still |
+| --- | --- | --- |
+| One controller per machine across three team layouts | [Follow each controller](screenshots/mvsc/mvc-roster-routing.gif) | [Owner assignments](screenshots/mvsc/mvc-roster-routing.png) |
+| Who gets a new pick after the same KO and early Start | [Rematch flow](screenshots/mvsc/rematch-selection.gif) | [Four confirmation frames](screenshots/mvsc/rematch-selection.png) |
+
+### Choosing a host for four distant players
+
+With four single-controller machines, each guest sends input to the host, which forwards it to the other guests.
+A guest can have a good connection to the host while waiting on inputs from another guest. [Example of the two links](screenshots/mvsc/mvc-host-routes.png). The host's three
+direct RTT readings measure individual round trips. The guest-to-guest number shown by the game is an estimate.
+
+For a group in London, Canada, California and Venezuela, try each willing player as host. Keep the game build,
+controller assignments by fighter where possible, gameplay sequence, and input delay consistent. Use the same
+two tests each time:
+
+1. In classic 2 vs 2, tag in both directions and confirm that point control follows the tag. Record any
+   quarter-circle and HP+HK from different teammates that activates an unintended team move.
+2. Enable Cross Fever. Have both teams enter QCB + HP+HK, have each of the four owners give distinguishable
+   commands during the overlap, and repeat across expiry and a rematch. Record each machine's confirmed hashes.
+
+Log direct RTT samples, bursts of missing packets where measurable, prediction waits, pacing waits and frame overruns.
+Compare intervals of equal length early and late in the set. Ask all four players whether taps register and whether
+the chosen delay feels playable. Repeat the best candidates. The two input-delay settings in the
+[measured comparison](screenshots/mvsc/mvc-host-delay.png) came from unequal simulated links on one computer.
+
+**Proposed lobby improvement.** Probe the reachable candidates before a match and show how each performs on its
+worst guest-to-guest route. A timed guest → host → second guest → host → first guest echo would measure the full
+forwarded round trip using one clock. Compare the 95th percentile and loss bursts for each candidate. Also
+show direct-link readings so a player can identify a weak host connection. This pre-match probe is a proposal.
+An idle versus busy uplink comparison tests whether traffic at home adds delay.
+
+Measurements of U.S. fiber show that route length alone can underpredict delay. A console matchmaking study used
+latencies between actual machines to improve predictions. CAKE's residential gateway measurements motivate the
+busy-uplink control. These sources concern routing and queuing. A four-country Marvel match and rematch on this
+build still needs live measurements. [Bozkurt et al., arXiv](https://arxiv.org/abs/1811.10737)
+· [Agarwal and Lorch, SIGCOMM](https://www.microsoft.com/en-us/research/publication/matchmaking-for-online-games-and-other-latency-sensitive-p2p-systems/)
+· [Høiland-Jørgensen et al., arXiv](https://arxiv.org/abs/1804.07617).
+
 ## Internet acceptance still required
 
 Record build, platform, people per machine, joining order, connection method, result, ping, stalls and desyncs.
