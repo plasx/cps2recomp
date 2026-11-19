@@ -74,7 +74,7 @@ namespace {
         return nullptr;
     }
     bool OnlineModeHere(int mode) {
-        return mode == 0 || FindFeature(mode == 1 ? "court_points" : "team_size") != nullptr;
+        return mode == 0 || (mode == 1 && FindFeature("court_points")) || (mode == 2 && FindFeature("team_size"));
     }
     // A player's own fighters' rows on the modes' pages (player 1's the host's, player 2's the other side's)
     bool OwnRow(int player, const std::string &row) {
@@ -3254,6 +3254,7 @@ void Port::LeaveOnline() {
 
 void Port::OnlineEvent(int player, const std::string &text, uint64_t eventFrame) {
     for (size_t at = 0; at < text.size();) {
+        const OnlinePickHistory::Position position{eventFrame, player, at};
         const size_t comma = std::min(text.find(',', at), text.size());
         const std::string item = text.substr(at, comma - at);
         at = comma + 1;
@@ -3264,22 +3265,19 @@ void Port::OnlineEvent(int player, const std::string &text, uint64_t eventFrame)
         const std::string name = item.substr(0, eq);
         if (name == "mode" && player == 0) {
             const int mode = atoi(item.c_str() + eq + 1);
+            if (!OnlineModeHere(mode)) continue;
             const size_t colon = item.find(':', eq);
             const uint32_t seed = colon == std::string::npos ? 1 : static_cast<uint32_t>(strtoul(item.c_str() + colon + 1, nullptr, 10));
-            // (each row as the events before this frame left it: a rollback back to here may have run later ones already)
             for (const auto &[row, log] : onlinePickLog) {
-                const auto it = log.upper_bound(eventFrame);
-                SetFeatureForNow(row.c_str(), it == log.begin() ? onlinePickBase[row] : std::prev(it)->second);
+                SetFeatureForNow(row.c_str(), log.Before(position));
             }
             battle::StartOnline(*machine, mode, seed);
         } else if (OwnRow(player, name)) {
             const Feature *feature = FindFeature(name);
             const int value = atoi(item.c_str() + eq + 1);
             if (feature && value >= 0 && value < static_cast<int>(std::max<size_t>(feature->choices.size(), 2))) {
-                if (!onlinePickBase.count(name)) {
-                    onlinePickBase[name] = FeatureValue(feature->name);
-                }
-                onlinePickLog[name][eventFrame] = value;
+                auto it = onlinePickLog.try_emplace(name, FeatureValue(feature->name)).first;
+                it->second.Record(position, value);
                 SetFeatureForNow(feature->name, value);
             }
         }
@@ -3417,7 +3415,7 @@ void Port::HearEvents() {
             const std::string name = item.substr(0, eq);
             const int value = atoi(item.c_str() + eq + 1);
             std::string said;
-            if (name == "mode" && player == 0 && value >= 0 && value < 3) {
+            if (name == "mode" && player == 0 && OnlineModeHere(value)) {
                 said = who + (value == 0 ? " went back to Versus" : std::string(" started ") + kOnlineModes[value]);
             } else if (const Feature *feature = FindFeature(name); feature && OwnRow(player, name) && value >= 0 &&
                                                                     value < static_cast<int>(feature->choices.size())) {
@@ -3500,7 +3498,6 @@ void Port::Matched() {
     if (!opt.movieRecord.empty()) recMovie.BeginRecording();
     connecting = false;
     onlinePickLog.clear();
-    onlinePickBase.clear();
     onlinePicks.clear();
     net->BeginSet();
     chatHintUntil = net->Watching() ? 0 : tick + kChatTicks;

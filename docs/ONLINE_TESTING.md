@@ -92,6 +92,29 @@ python3 tools/check_mvc_bench_ownership.py --rom rom/mvsc
 PEOPLE=1,1,1,1 GAME=mvsc MVC_TEAM_ORDER=1 MVC_CUSTOM=1 FIRST_TO=1 WATCH=1 tools/check_online.sh 1200
 ```
 
+### Compatibility with upstream main
+
+Compared upstream `ea9e101` with GitHub's merge of the first reviewed revision (`e00b538`, PR head `05fe6d7`). Both builds used the Release interpreter on macOS arm64.
+
+| Existing behavior | Direct comparison |
+| --- | --- |
+| MVC and MSHvsSF arcade play | One paid player versus CPU and two paid players per game. All 21,600 per-frame hashes and all 24 screen captures were identical. The two-human games included native tags. |
+| Classic MVC Tag team, Cross Fever off | Two more 5,400-frame runs matched on every game-state hash and on the fighter/team RAM traces. In the point-owner test the left team tagged at 4344 and 4734, the right at 4514 and 4914. Distinct inputs followed the active fighters both ways. The local POINT labels move from y=42 to y=68 to clear the native helper counters. |
+| #414 upper, lower and hidden names | Four processes ran one match with different local display settings. All agreed on 1,509 confirmed frames. At frame 1500, hiding the upper labels changed 3,744 pixels. It changed zero pixels in the centered FT10 score or in the sampled board rows 14–79 and 110–164. |
+| #416 Endless Battle foreground | X-Men vs. Street Fighter, The TV Studio, seed 23. All 2,000 picture hashes and all 2,000 non-picture state hashes matched main. A control with the pre-#416 renderer changed 325 frames, including 1,084 fighter/shadow-overlap pixels at frame 1375. |
+
+**In-match menu and rollback (#415).** On Street Fighter Alpha 2, the host and guest picked Ken and Akuma for Ball battle, then Charlie and Chun-Li for Tag team. Both boards ran the selected pair. The host could return to Versus. A targeted save/restore test exposed a separate bug when the host started a mode on the same frame the guest picked a fighter. Replay saw the later pick and chose ID 6 where the original run had chosen ID 1. The correction orders commands by simulation frame, sender and position in the sender’s packet. Ball and Tag matched on all 350,945 saved bytes in each of eight replay cases. The command-order regression runs in `make check-netplay`.
+
+For the paid versus comparison, run both executables separately from clean directories with the same ROM and [paid-versus movie](test-data/marvel-paid-versus.txt):
+
+```sh
+"$GAME_EXE" --rom "$ROM" --headless --frames 5400 --movie "$MOVIE" --settings settings.ini --eeprom board.eep --hash-log full.hash --shot-every 900:frame-
+```
+
+Compare the two `full.hash` files and the six PNGs. For MVC’s [four point tags](test-data/mvc-classic-point-tags.txt), add `--features free_play,tag_team=2` and check the controller handoffs above. `GAME=vampire_savior tools/check_online.sh 1500` also reproduced Tommy’s #415 transport test on the initial merge. Host, guest and offline replay agreed on 1,497 confirmed frames at 50±25 ms simulated delay and 5% loss.
+
+[Four-player FT10 capture with long names](screenshots/mvsc/ft10-team-names.png). The whole-collection builds cover compilation. The comparisons above cover the named games and scenes.
+
 ## Reproducing the November 18 playtest
 
 A community playtest of 1.6.0-beta.2 reached a four-player fight across four countries. Participants reported that

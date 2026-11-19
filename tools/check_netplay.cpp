@@ -839,6 +839,21 @@ struct NetplayTest {
                 mismatch.ended == "The games disagree on the final set score.", "disagreed set score was accepted");
     }
 
+    static void ModePickOrder() {
+        OnlinePickHistory host(1), guest(2);
+        const OnlinePickHistory::Position mode{60, 0, 12};
+        host.Record({60, 0, 0}, 3);
+        Require(host.Before(mode) == 3 && guest.Before(mode) == 2, "mode missed a preceding pick");
+        host.Record({60, 0, 22}, 9);
+        guest.Record({60, 1, 0}, 7);
+        guest.Record({61, 1, 0}, 5);
+        Require(host.Before(mode) == 3 && guest.Before(mode) == 2,
+                "replaying mode consumed a later command or a later sender in the same frame");
+        Require(host.Before({60, 0, 0}) == 1 && guest.Before({61, 0, 0}) == 7 &&
+                    host.Before({62, 0, 0}) == 9 && guest.Before({62, 0, 0}) == 5,
+                "mode at another boundary restored the wrong fighter");
+    }
+
     static void ModeEvents() {
         Netplay host(Settings(true)), client(Settings(false));
         host.links.resize(1);
@@ -971,6 +986,7 @@ struct NetplayTest {
                  {"SDL taps through network stalls, two local seats and stale-input expiry", WindowStallInputs},
                  {"all-machine first-to consensus and score mismatch", FirstToConsensus},
                  {"reliable mode events and four-human mode guard", ModeEvents},
+                 {"fighter picks before same-frame mode commands under rollback", ModePickOrder},
                  {"four-stream confirmed spectators and read-only controls", SpectatorControls}}) {
             run();
             std::cout << "PASS: " << name << '\n';

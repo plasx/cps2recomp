@@ -20,12 +20,29 @@
 #include <cstdio>
 #include <deque>
 #include <filesystem>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace port {
+
+// One online fighter-pick row. Netplay::Run orders a frame's events by sender, then OnlineEvent reads each
+// sender's comma-separated commands in order. A replay can already have later picks in this history.
+struct OnlinePickHistory {
+    using Position = std::tuple<uint64_t, int, size_t>; // frame, sender, command byte offset
+    explicit OnlinePickHistory(int initial) : base(initial) {}
+    void Record(Position at, int value) { picks[at] = value; }
+    int Before(Position at) const {
+        const auto next = picks.lower_bound(at);
+        return next == picks.begin() ? base : std::prev(next)->second;
+    }
+private:
+    int base;
+    std::map<Position, int> picks;
+};
 
 struct Options {
     std::string romPath = "rom";
@@ -334,11 +351,9 @@ struct Port {
     // Online, the modes played in a match (Netplay::Command): an event of `player`'s, run on both sides before the
     // frame it was given for: "mode=N:SEED" (the host's: battle::StartOnline) and "row=value" (a player's own fighters
     // on the modes' pages: player 1's rows the host's, player 2's the other's), commas between
-    // (`at`: the frame it is run before. A mode starts with each row as the events before its frame left it, in
-    // onlinePickLog: a rollback back to before a pick may have run that pick already)
+    // (`at`: the frame it is run before. A mode starts with each row as the events before its command left it.)
     void OnlineEvent(int player, const std::string &text, uint64_t at);
-    std::map<std::string, std::map<uint64_t, int>> onlinePickLog;
-    std::map<std::string, int> onlinePickBase; // (each row as it was before its first event)
+    std::map<std::string, OnlinePickHistory> onlinePickLog;
     // Esc in a match: the match's own menu (Menu::OpenOnline), drawn over the game, which goes on: the host's modes to
     // start (OnlineCommand), this player's own fighters for them (onlinePicks, sent as events), leaving. Watching, or a
     // host waiting, Esc asks only whether to leave (`leaving`, answered by LeaveQuestion)
