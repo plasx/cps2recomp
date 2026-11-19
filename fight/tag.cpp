@@ -50,7 +50,8 @@ namespace {
 
 Mode Chosen() {
     const int value = FeatureValue(kFeature);
-    return value == kCoop ? kCoop : value == kVersus ? kVersus : kOff;
+    const int last = g_d.threePlayers ? kOneVsTwo : kVersus;
+    return value >= kOff && value <= last ? static_cast<Mode>(value) : kOff;
 }
 
 int Person(int side, int pick) {
@@ -58,7 +59,12 @@ int Person(int side, int pick) {
     case kCoop:
         return side == 0 ? pick : -1;
     case kVersus:
+        if (g_d.teamOrder && FeatureValue(kTeamOrder) == 1) return 2 * side + pick;
         return side + 2 * pick;
+    case kTwoVsOne:
+        return side == 0 && pick == 1 ? 2 : side;
+    case kOneVsTwo:
+        return side == 1 && pick == 1 ? 2 : side;
     default:
         return pick == 0 ? side : -1;
     }
@@ -78,17 +84,21 @@ uint16_t Held(int person) {
 }
 
 void BeforeFrame(Machine &machine) {
+    RouteInputs(machine.players);
+}
+
+void RouteInputs(uint16_t (&players)[Machine::kMaxPlayers]) {
     uint16_t *const held = g_held;
-    std::copy(std::begin(machine.players), std::end(machine.players), held);
+    std::copy(std::begin(players), std::end(players), held);
     // (players 3 and 4 are on the lines of players 1's and 2's kicks: never on the board here)
-    machine.players[2] = machine.players[3] = 0;
+    players[2] = players[3] = 0;
     if (!Routing()) {
         return;
     }
     for (int side = 0; side < 2; side++) {
         const int first = Person(side, 0), second = Person(side, 1);
         if (first < 0) {
-            machine.players[side] = 0; // (the computer's side: nobody comes in)
+            players[side] = 0; // (the computer's side: nobody comes in)
             continue;
         }
         int person, partner;
@@ -103,7 +113,7 @@ void BeforeFrame(Machine &machine) {
                 panel |= g_d.tagButtons;
             }
         }
-        machine.players[side] = panel;
+        players[side] = panel;
     }
 }
 
@@ -124,6 +134,7 @@ void Frame(Machine &) {
         if (person >= 0) {
             const std::string text = "P" + std::to_string(person + 1);
             lines.push_back({side == 0 ? left : right, g_d.labelY, side == 0 ? -1 : 1, text});
+            lines.back().pointMarker = true;
         }
     }
     Label(std::move(lines));
@@ -138,8 +149,23 @@ void Register(const Description &description) {
                                   "character (the first person first); in a fight the panel is whoever's character is on point, "
                                   "and the partner tags in with HP+HK. The labels under the bars say who is on point.",
                                   kFeatureMatch, {"Off", "Co-op vs. computer", "2 vs 2"}});
-    // (online: four players in 2 vs 2; the alternative modes that would keep the routing off are off in a match)
-    TheGame().matchPlayers = [] { return Chosen() == kVersus ? 4 : 2; };
+    if (g_d.threePlayers) {
+        auto &choices = TheGame().features.back().choices;
+        choices.push_back("2 vs 1");
+        choices.push_back("1 vs 2");
+    }
+    if (g_d.teamOrder) {
+        TheGame().features.push_back({kTeamOrder, g_d.page ? g_d.page : modes::kModes, "Four-player team order",
+                                      "Choose the teammates for 2 vs 2. The first player on each side chooses first. "
+                                      "The Dreamcast order is P1/P3 vs P2/P4.",
+                                      kFeatureMatch | kFeatureOwn, {"P1/P3 vs P2/P4", "P1/P2 vs P3/P4"}});
+    }
+    TheGame().matchPlayers = [] {
+        const Mode mode = Chosen();
+        if (mode == kTwoVsOne || mode == kOneVsTwo) return 3;
+        return mode == kVersus ? 4 : 2;
+    };
+    TheGame().matchOwner = Person;
 }
 
 } // namespace cps2recomp::tag

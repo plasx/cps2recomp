@@ -1,6 +1,15 @@
 # Online diagrams
 
-These diagrams use Morphus56K’s website design: Space Grotesk headings, Inter body text,
+## Protocol 13 review figures
+
+| Question | Figure and evidence |
+| --- | --- |
+| Who owns a command when both fighters are on screen? | [Controller ownership and a held tag](mvc-input-ownership.svg) · [Ordinary-input regression](../../tools/check_mvc_bench_ownership.py) |
+| Who pauses when clocks drift? | [Four peers and a 1.5-frame lead](mvc-rollback-pacing.svg) · [MVC and MSHvsSF results](../ONLINE_TESTING.md#november-19-review-checks-protocol-13) |
+
+## Earlier reviews
+
+The historical diagrams use Morphus56K’s website design: Space Grotesk headings, Inter body text,
 JetBrains Mono labels, dark green surfaces, phosphor-green connections and cyan annotations.
 They are drawn SVGs with outlined lettering, so GitHub displays the intended fonts without
 external font requests. They contain no generated photographic artwork or game assets. Shallow projected faces distinguish
@@ -18,7 +27,7 @@ figure separately identifies result-ordering fix `6dff752` and invitation-race f
 protocol and Worker checks are recorded in [November 14 verification](../ONLINE_TESTING.md#targeted-verification-november-14-2026).
 Packet field groups are an overview rather than a byte-offset specification.
 
-The diagrams explain behavior, not completed internet playtests. The current gameplay evidence
+The diagrams explain behavior, not completed internet playtests. The November 14 gameplay evidence
 remains attached to `471f7f7`; the earlier checkpoint retains its own results. A real four-machine
 internet match and rematch with physical controllers remains outstanding.
 

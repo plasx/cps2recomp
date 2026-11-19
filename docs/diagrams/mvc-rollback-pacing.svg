@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" height="480" viewBox="0 0 860 480" role="img" aria-labelledby="title description">
+  <title id="title">Which peer should pause?</title>
+  <desc id="description">Three guests send controller inputs to a host that forwards them. All four simulate. The old preview discarded a 1.5-frame lead and re-evaluated correction each frame. Protocol 13 sets a wait budget once per 60 frames and cancels unused waits when peers catch up. Across three successive 300-frame jitter-test windows the host and measured guest waited five and zero, zero and zero, then zero and five ticks.</desc>
+  <defs>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse"><path d="M32 0H0V32" fill="none" stroke="#294037" stroke-width="1"/></pattern>
+    <linearGradient id="back" x2="1" y2="1" gradientUnits="objectBoundingBox"><stop stop-color="#0c211b"/><stop offset="1" stop-color="#081411"/></linearGradient>
+    <style>
+      text{font-family:Arial,Helvetica,sans-serif;fill:#edf8f2}
+      .mono{font-family:ui-monospace,Consolas,monospace}
+      .dim{fill:#b0c7ba}
+      .mint{fill:#83f5af}
+      .blue{fill:#92d9ff}
+      .section{font-size:13px;font-weight:700;letter-spacing:1.1px}
+      .strong{font-size:18px;font-weight:700}
+    </style>
+  </defs>
+  <rect width="860" height="480" rx="14" fill="url(#back)"/>
+  <rect x="1" y="1" width="858" height="478" rx="14" fill="url(#grid)" fill-opacity=".25" stroke="#38584a"/>
+  <text x="30" y="38" class="mono mint section">CUSTOM UDP ROLLBACK  /  PROTOCOL 13</text>
+  <text x="28" y="83" font-size="40" font-weight="700">Which peer should pause?</text>
+  <text x="30" y="113" class="dim" font-size="18">The peer running ahead can wait. A fresh catch-up cancels its unused waits.</text>
+
+  <rect x="28" y="136" width="306" height="228" rx="8" fill="#0a1713" stroke="#355347"/>
+  <text x="47" y="164" class="section mint">FOUR MACHINES · ONE SEAT EACH</text>
+  <g fill="none" stroke="#67c38f" stroke-width="2">
+    <path d="M134 251H159V206H199 M159 251H199 M159 251V296H199"/>
+  </g>
+  <g stroke="#406c57" fill="#19392a">
+    <rect x="47" y="229" width="87" height="44" rx="6"/>
+    <rect x="198" y="189" width="104" height="34" rx="5"/><rect x="198" y="234" width="104" height="34" rx="5"/><rect x="198" y="279" width="104" height="34" rx="5"/>
+  </g>
+  <text x="90" y="258" text-anchor="middle" class="mono mint strong">HOST</text>
+  <g text-anchor="middle" class="mono" font-size="16">
+    <text x="250" y="212">GUEST 1</text><text x="250" y="257">GUEST 2</text><text x="250" y="302">GUEST 3</text>
+  </g>
+  <text x="47" y="335" class="dim" font-size="15">Host forwards inputs. All four simulate.</text>
+
+  <rect x="347" y="136" width="485" height="228" rx="8" fill="#0a1713" stroke="#355347"/>
+  <text x="367" y="164" class="section mint">MEASURED PACING WAITS</text>
+  <text x="367" y="188" class="dim" font-size="16">Three consecutive 300-frame windows with jitter</text>
+  <g class="mono" font-size="13" text-anchor="middle">
+    <text x="653" y="220" class="mint">HOST</text><text x="758" y="220" class="blue">GUEST</text>
+  </g>
+  <g stroke="#2c4339" fill="none"><path d="M367 230H810 M367 265H810 M367 301H810"/></g>
+  <g font-size="17">
+    <text x="367" y="254">Host leads by 1.5 frames</text><text x="367" y="290">Clocks level</text><text x="367" y="326">Guest takes the lead</text>
+  </g>
+  <g class="mono" text-anchor="middle" font-size="23" font-weight="700">
+    <text x="653" y="255" class="mint">5</text><text x="758" y="255" class="dim">0</text>
+    <text x="653" y="291" class="dim">0</text><text x="758" y="291" class="dim">0</text>
+    <text x="653" y="327" class="dim">0</text><text x="758" y="327" class="blue">5</text>
+  </g>
+  <path d="M30 384H830" fill="none" stroke="#426252"/>
+  <text x="30" y="410" class="section dim">EARLIER PREVIEW</text>
+  <text x="30" y="436" class="strong">Discarded a 1.5-frame lead.</text>
+  <text x="30" y="459" class="dim" font-size="16">Reconsidered the correction every frame.</text>
+  <text x="460" y="410" class="section mint">REVISED</text>
+  <text x="460" y="436" class="strong">One budget every 60 frames.</text>
+  <text x="460" y="459" class="dim" font-size="16">Fresh peer progress caps the waits.</text>
+</svg>

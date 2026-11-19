@@ -33,6 +33,7 @@ void ChoosingBeforeFrame(Machine &machine);
 void RegisterTag(); // tag.cpp
 void TagState(Archive &ar);
 void RegisterCrossFever(); // crossfever.cpp
+void CrossFeverInputs(const uint16_t *players);
 void CrossFeverState(Archive &ar);
 
 // 001920, the game's random number: a long divs, then the number kept (001932), as in X-Men vs. Street Fighter
@@ -70,6 +71,7 @@ void RegisterGame() {
     RegisterBoard();
     RegisterMusic();
     TheGame().beforeFrame = [](Machine &machine) {
+        CrossFeverInputs(machine.players);
         tag::BeforeFrame(machine);
         BoardBeforeFrame(machine);
         ChoosingBeforeFrame(machine);
@@ -111,7 +113,7 @@ void RegisterGame() {
     };
     // Its own, never set for the other games by the collection's launcher: Damage level has other choices in the Alpha
     // games (Low, Medium, Normal, High); the best scores and the animations are this game's
-    OwnFeatures({"board_damage", "board_mode_select", "survival_best", "ringout_best", "model_animation", "colours_animation"});
+    OwnFeatures({"board_damage", "board_mode_select", "survival_best", "ringout_best", "model_animation", "colours_animation", "tag_team"});
     // Other games' stages: last, as it goes around the frame's callbacks and the state's (stages.cpp)
     RegisterStages();
 }

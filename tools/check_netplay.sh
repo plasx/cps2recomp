@@ -21,7 +21,7 @@ case "$(uname -s)" in
 esac
 "${CXX:-c++}" -std=c++20 -O1 -ffunction-sections -fdata-sections \
     -DRECOMP_VERSION='"netplay-test"' -I"$work" -Imachine -Iruntime \
-    ${cpp_flags[@]+"${cpp_flags[@]}"} ${cxx_flags[@]+"${cxx_flags[@]}"} tools/check_netplay.cpp \
+    ${cpp_flags[@]+"${cpp_flags[@]}"} ${cxx_flags[@]+"${cxx_flags[@]}"} tools/check_netplay.cpp fight/tag.cpp port/hud.cpp \
     "${strip_flags[@]}" ${ld_flags[@]+"${ld_flags[@]}"} "${sdl_flags[@]}" -lz -pthread -o "$work/check_netplay"
 # The failed-service test only contacts loopback, even on machines with a system HTTP proxy configured.
 NO_PROXY=127.0.0.1 no_proxy=127.0.0.1 "$work/check_netplay"

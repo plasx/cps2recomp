@@ -124,6 +124,28 @@ is FF4000 here), and the players' records 0x20 further on from +0x250 (health +2
   Dreamcast's game, in Cross Fever as in the rest. The rest: the four players' choosing and menus, what comes after a
   match, the controllers' rumble, a pause when a controller is pulled out, and places shared with the Dreamcast's other
   modes (its versus and training): each of the tests that never ran in a fight there is one of these, read one by one.
+- **Result and next selection (US Dreamcast 0.BIN)**. The result state writes 120 to its countdown at 8C054652.
+  The following handler tests the old countdown, updates the state to 4/substate 0, writes 3 to the state byte at
+  +1F, and clears *both* controller selectors at 8C05469A and 8C05469C. Selecting the second fighter to lead
+  toggles just that side's selector (8C03AA14–8C03AA1E and 8C03AB44–8C03AB4E).
+  An ordinary-input Flycast recording from boot (`bootstrap_02/trace.csv`,
+  `SHA256=e8540b3c44242f6d1a8a84842288a5bebc8fde55ccd1dcbe00addccdee9a54b3`) shows both timers at 576 on vblank
+  20,517. At 21,537 the left timer expired and only the left selector flipped. The right followed at 21,539.
+  At 23,542 the four role bytes returned to their starting order. Both selectors read zero at 23,543, with the
+  Cross Fever mode flag still set. The recording ends during the next selection.
+  These are state-machine steps. Their number does not establish a wall-clock duration. The recomp uses arcade
+  result and selection screens. Its first-pick hook clears each side's starting order and its board boot clears
+  both orders together, including when a previously swapped match is followed by a rehost. The
+  `check-crossfever-reset` regression drives the two native order changes and the registered board boot hook.
+- **Arcade continuation and optional human reselection**. In the European board program, 012798 or 0127A6 keeps
+  only the winning team's bit in FF4101. An ordinary loser Start restores a versus match but opens only the
+  losing team's two picks. Without a rejoin, the winner continues against the CPU. An optional Cross Fever
+  rematch records the match played by two human-controlled teams at 012786 and keeps its normal result screen. On
+  result exit at 0D39EE it enters the stock challenger tail at 024346: each fighter's human flag is rebuilt,
+  then 00AF46 initializes the interactive selection. At 00AF86 the board normally recomputes the keep-winner
+  mask in FF4160 once for each joining side. The new selection keeps that mask clear until both teams have
+  chosen. It preserves the winner's field at fighter+2B2. An early challenger Start uses its existing route
+  to 00AF46. The two sides keep their controller assignments through all four picks.
 - **Characters**: the word +52, each number put in player 1's picks and seen in a fight with its name: 02 War Machine,
   04 Captain America, 06 Hulk, 08 Wolverine, 0A Gambit, 0C Venom, 0E Spider-Man, 10 Roll, 12 Ryu, 14 Captain Commando,
   16 Chun-Li, 18 Jin, 1A Zangief, 1C Strider Hiryu, 1E Morrigan, 20 Mega Man, 24 Red Venom, 26 Orange Hulk, 28 Gold War
@@ -285,15 +307,16 @@ before, as `check-online` now does: started half a second and 0.7 apart, a host 
   all four machines the same over 5,688 frames, each record moved by the person who chose its character (player 3's on
   point first); player 1's Duo Team Attack command, from the partner now, does nothing, and side 1's goes as before.
 
-## Not checked by a person
+## Remaining hands-on checks
 
-Nobody has played it in a window, used a gamepad with it, or listened to it: every check above is headless. The
-custom soundtrack files, the dummy's record and replay, and the arcade timing have not been tried by hand. Roll's and
+Players reached a four-person internet fight on 1.6.0-beta.2. The November 18 regression runs used scripted inputs
+and virtual gamepads. Physical controller assignment and a full internet match and rematch on the new build remain open.
+The custom soundtrack files, the dummy's record and replay, and the arcade timing still need a hands-on check. Roll's and
 Zangief's themes are named by their numbers, not heard. Attract mode's "fights only" shows parts of the introduction
 between the fights too: this game's show mixes them more than the earlier games'.
 
 ## Next
 
-- Online play is the toolkit's; this game has not been tried over a network (four players at up to four machines
-  neither: localhost only, and the introduction service's change run in Node, not on Cloudflare).
+- Repeat the four-machine internet set with synchronized logs and compare hosts. The new three-seat admission rule
+  has been exercised on a local Worker. [Network setup and test results](../../docs/ONLINE_TESTING.md#reproducing-the-november-18-playtest).
 - Cross Fever: the Dreamcast's four-player choosing and menus (here the board's choosing, a person a pick).

@@ -6,6 +6,7 @@
 
 #include "../machine/machine.h"
 #include "menu.h"
+#include "movie.h"
 #include "netplay.h"
 #include "present.h"
 #include "scene.h"
@@ -82,21 +83,14 @@ struct Options {
     uint64_t rollbackTest = 0;  // --rollback-test SEED: each frame run as online play's rollback would (RollbackTest)
     bool online = false;        // --host or --join: online play (netplay.h), as `net` says
     Netplay::Settings net;
+    int netDelayOverride = -1; // --net-delay overrides the saved host preference, including when explicitly zero
+    int launcherNetDelay = -1; // the launcher's global Online setting, below an explicit per-game choice
     std::string netSay;         // --net-say [FRAME:]TEXT: (tests) the line said in the chat at FRAME of the match (120)
     uint64_t netSayAt = 120;
     // --net-command FRAME:TEXT, again for more: (tests) an event this side makes at FRAME of the match (Netplay::Command:
     // "mode=1:7" the ball battle with seed 7, "court_one=3" a fighter)
     std::vector<std::pair<uint64_t, std::string>> netCommands;
     std::string netTyping;      // --net-typing TEXT: (pictures) a line shown as being typed, all through the match
-};
-
-// Recorded input: what the players hold, at the frames where it changes
-// (each line: the frame, then each player's; two players unless a movie has more)
-struct Movie {
-    using Pads = std::array<uint16_t, cps2recomp::Machine::kMaxPlayers>;
-    std::map<uint64_t, Pads> changes;
-    bool Load(const std::string &path);
-    bool Save(const std::string &path) const;
 };
 
 // --rollback-test: what online play's rollback does to the game (issue #70), with no network. Player 1's controls

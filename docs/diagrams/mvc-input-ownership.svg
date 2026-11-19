@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="720" height="748" viewBox="0 0 720 748" role="img" aria-labelledby="title desc">
+  <title id="title">Cross Fever controller ownership and a reserve tag through hitstun</title>
+  <desc id="desc">In four-player Cross Fever, the default left team starts with P1 on point and P3 in reserve. P2 and P4 start on the right. The host can pair P1/P2 against P3/P4. The point owner must enter all of QCB plus HP plus HK for a timed Duo. A reserve’s HP plus HK can request a normal tag under the Either rule. In the traced right-team fight P2 was hit on frame 4424, P4 held the tag chord on 4430, the tag began on 4455 and P4 took point on 4469. Releasing on 4435 cancelled it. Start and the configured taunt attack must come from one owner during Duo. With both fighters idle on frames 4250 through 4499 the default gauge stayed at 144 units. With passive gain enabled it rose from 167 to 209.</desc>
+  <defs>
+    <linearGradient id="face" x2="0" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#1f3a31"/><stop offset="1" stop-color="#13251e"/>
+    </linearGradient>
+    <radialGradient id="ball" cx="33%" cy="23%" r="80%">
+      <stop stop-color="#f1fff6"/><stop offset=".28" stop-color="#b0f5c7"/><stop offset=".74" stop-color="#5dba81"/><stop offset="1" stop-color="#28684c"/>
+    </radialGradient>
+    <pattern id="rain" width="54" height="74" patternUnits="userSpaceOnUse">
+      <path d="M8 0v6m0 3v3m0 8v12m0 6v3m17-14v4m0 4v11m0 5v5m18-54v5m0 3v12m0 4v3" fill="none" stroke="#84e7a7" stroke-width="1.4"/>
+    </pattern>
+    <linearGradient id="rain-fade"><stop stop-color="white" stop-opacity="0"/><stop offset="1" stop-color="white"/></linearGradient>
+    <mask id="rain-mask"><rect x="430" width="290" height="90" fill="url(#rain-fade)"/></mask>
+    <g id="key"><ellipse rx="4" ry="2.8" fill="#081910" stroke="#89b5a1" stroke-width="1"/><ellipse cy="-.7" rx="3.3" ry="2" fill="currentColor" opacity=".86"/></g>
+    <g id="stick" stroke-linejoin="round">
+      <path d="m2 32 20-15 76 8-18 21Z" fill="url(#face)" stroke="#628474" stroke-width="1.1"/>
+      <path d="m2 32 78 14v8L2 40Z" fill="#15251d" stroke="#476653" stroke-width="1"/>
+      <path d="m80 46 18-21v8L80 54Z" fill="#101c15" stroke="#476653" stroke-width="1"/>
+      <path d="m9 35 34 6" stroke="currentColor" stroke-width="1.6"/>
+      <ellipse cx="29" cy="30" rx="8" ry="3.2" fill="#0b1711" stroke="#648575" stroke-width=".8"/>
+      <path d="m28 29 1-15h2v15z" fill="#b4cebc" stroke="#8ea597" stroke-width=".9"/>
+      <circle cx="30" cy="12" r="7.5" fill="url(#ball)" stroke="#426d53" stroke-width="1.1"/>
+      <use xlink:href="#key" x="57" y="26"/><use xlink:href="#key" x="67" y="26"/><use xlink:href="#key" x="77" y="28"/>
+      <use xlink:href="#key" x="51" y="32"/><use xlink:href="#key" x="61" y="32"/><use xlink:href="#key" x="71" y="34"/>
+    </g>
+    <style>
+      text { font-family: "Helvetica Neue", Arial, sans-serif; fill: #edf6ef; }
+      .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+      .label { font-size: 14px; font-weight: 700; letter-spacing: 1.3px; fill: #a7c8b4; }
+      .body { font-size: 19px; fill: #c5d7cb; }
+      .step { font-size: 19px; font-weight: 600; }
+      .green { fill: #8fecad; }
+      .ice { fill: #98ddd7; }
+      .rule { stroke: #345045; stroke-width: 1; }
+    </style>
+  </defs>
+
+  <rect x=".5" y=".5" width="719" height="747" rx="14" fill="#0b1711" stroke="#3b5947"/>
+  <rect x="430" y="1" width="289" height="87" fill="url(#rain)" mask="url(#rain-mask)" opacity=".16"/>
+  <path d="M30 26h25" stroke="#62da8b" stroke-width="3"/>
+  <text x="66" y="31" class="mono label">MARVEL VS. CAPCOM  /  CROSS FEVER</text>
+  <text x="30" y="82" font-size="40" font-weight="700" letter-spacing="-1.25">Four fighters, four input owners</text>
+
+  <g aria-label="Default starting positions">
+    <path d="M30 109h306m48 0h306" class="rule"/>
+    <text x="30" y="135" class="mono label green">LEFT TEAM</text>
+    <text x="384" y="135" class="mono label ice">RIGHT TEAM</text>
+    <text x="335" y="135" text-anchor="end" class="label" style="letter-spacing:0">Dreamcast default</text>
+    <g color="#81ecab">
+      <use xlink:href="#stick" transform="translate(38 148) scale(1.18)"/>
+      <use xlink:href="#stick" transform="translate(197 148) scale(1.18)"/>
+    </g>
+    <g color="#92d8d2">
+      <use xlink:href="#stick" transform="translate(392 148) scale(1.18)"/>
+      <use xlink:href="#stick" transform="translate(551 148) scale(1.18)"/>
+    </g>
+    <text x="40" y="239" class="step"><tspan class="green">P1</tspan><tspan dx="7">point</tspan></text>
+    <text x="199" y="239" class="step"><tspan class="green">P3</tspan><tspan dx="7">reserve</tspan></text>
+    <text x="394" y="239" class="step"><tspan class="ice">P2</tspan><tspan dx="7">point</tspan></text>
+    <text x="553" y="239" class="step"><tspan class="ice">P4</tspan><tspan dx="7">reserve</tspan></text>
+    <path d="M360 119v122" stroke="#345045" stroke-dasharray="2 7"/>
+    <rect x="30" y="258" width="660" height="39" rx="5" fill="#13251b"/>
+    <text x="43" y="284" class="body">Alternate order <tspan fill="#85a892">/</tspan> <tspan font-weight="700" fill="#e0efe3">P1/P2</tspan> left <tspan fill="#85a892">·</tspan> <tspan font-weight="700" fill="#e0efe3">P3/P4</tspan> right</text>
+  </g>
+
+  <g aria-label="Command ownership">
+    <text x="30" y="345" font-size="28" font-weight="700" letter-spacing="-.65">Who enters the command?</text>
+    <path d="M30 361h660m-660 50h660m-660 50h660" class="rule"/>
+    <text x="30" y="394" class="mono label green">POINT</text>
+    <text x="168" y="394" class="mono" font-size="21" font-weight="700">QCB + HP + HK</text>
+    <path d="M366 387h38m-7-6 7 6-7 6" fill="none" stroke="#80bb96" stroke-width="2"/>
+    <text x="426" y="394" class="step">Timed Duo</text>
+    <text x="30" y="444" class="mono label green">RESERVE</text>
+    <text x="168" y="444" class="mono" font-size="21" font-weight="700">HP + HK</text>
+    <path d="M366 437h38m-7-6 7 6-7 6" fill="none" stroke="#80bb96" stroke-width="2"/>
+    <text x="426" y="444" class="step">Normal tag <tspan font-weight="400" fill="#b7cbbd">· Either rule</tspan></text>
+    <text x="30" y="491" class="body">During Duo, <tspan fill="#eff7f1" font-weight="700">Start + taunt attack</tspan> must come from one owner.</text>
+  </g>
+
+  <g aria-label="Observed right-team tag timing">
+    <path d="M30 514h660" class="rule"/>
+    <text x="30" y="553" font-size="28" font-weight="700" letter-spacing="-.65">One reserve tag through hitstun</text>
+    <text x="690" y="552" text-anchor="end" class="mono label">GAME FRAMES</text>
+    <text x="39" y="590" class="mono" font-weight="700" font-size="19">4424</text>
+    <text x="117" y="590" class="mono green" font-weight="700" font-size="19">4430</text>
+    <text x="455" y="590" class="mono green" font-weight="700" font-size="19">4455</text>
+    <text x="679" y="590" text-anchor="end" class="mono ice" font-weight="700" font-size="19">4469</text>
+    <path d="M48 603h615" fill="none" stroke="#486454" stroke-width="2"/>
+    <path d="M129 603h340" fill="none" stroke="#8fecad" stroke-width="4"/>
+    <path d="M473 603h180" fill="none" stroke="#98ddd7" stroke-width="2" stroke-dasharray="5 4"/>
+    <circle cx="48" cy="603" r="4" fill="#0b1711" stroke="#c7d8cc" stroke-width="2"/>
+    <rect x="124" y="598" width="10" height="10" rx="2" fill="#8fecad"/>
+    <rect x="463" y="597" width="12" height="12" rx="2" fill="#0b1711" stroke="#8fecad" stroke-width="2.5"/>
+    <path d="m658 596 7 7-7 7-7-7z" fill="#98ddd7"/>
+    <text x="39" y="636" class="body">P2 hit</text>
+    <text x="117" y="636" class="body">P4 holds HP+HK</text>
+    <text x="455" y="636" class="body">Tag starts</text>
+    <text x="679" y="636" text-anchor="end" class="body">P4 on point</text>
+    <path d="M197 609v10m0 27v16h45" fill="none" stroke="#c1a76a" stroke-width="1.5" stroke-dasharray="3 2"/>
+    <path d="m246 658 8 8m0-8-8 8" fill="none" stroke="#e4c281" stroke-width="2"/>
+    <text x="265" y="669" font-size="18" fill="#ead5a8"><tspan class="mono" font-weight="700">4435</tspan>  Release early → no tag</text>
+  </g>
+
+  <path d="M30 694h660" class="rule"/>
+  <text x="30" y="726" class="body" font-size="18">Idle gauge <tspan class="mono" style="font-size:15px" fill="#acbfae">4250–4499</tspan></text>
+  <text x="279" y="726" class="body">Default <tspan font-weight="700" fill="#eff7f1">144 → 144</tspan></text>
+  <text x="489" y="726" class="body">Passive <tspan font-weight="700" fill="#a4e8b8">167 → 209</tspan></text>
+</svg>

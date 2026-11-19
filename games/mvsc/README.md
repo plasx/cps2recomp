@@ -11,7 +11,7 @@ call in.
 
 It has everything the other fighting games here have: a full **training mode** (hit boxes, frame data and a frame
 meter, input display, combo readout, a dummy that records, replays and guards), the **alternative modes** (attract
-mode, the stage and model viewers, survival, endless battle, ring out), **tag-team co-op and 2 vs 2** for up to four
+mode, the stage and model viewers, survival, endless battle, ring out), **tag-team co-op and versus** for two to four
 players (online too, each on their own machine or two at one), the Dreamcast's **Cross Fever**, **widescreen**, **custom colours** with a colour editor, the **hidden characters** with no code, and the features every game shares: free play, straight to the
 title, the board's operator settings, cheats, save states, run-ahead, arcade timing, a custom soundtrack.
 
@@ -119,7 +119,7 @@ have. Each has a page with a Start row and its own choices, and runs until anoth
 | Endless battle | Two teams the game plays, for as long as you like, with no bars and no clock, on one stage, on stages that fade one into another, or on a floor that scrolls through them all. Touch the controls to take a side over |
 | Ring out | No health. Knock your opponent over the end of the stage (it is flung into the air and falls through the floor), then jump down after it and land on the next stage |
 
-## Tag team: co-op and 2 vs 2
+## Tag team and player assignments
 
 Each character of a team can be played by a person of its own, with no patched ROM: "Tag team" on the Alternative
 modes page (or the launcher's Features page) chooses how.
@@ -128,27 +128,30 @@ modes page (or the launcher's Features page) chooses how.
 | --- | --- |
 | Off | One player a side, as on the board |
 | Co-op vs. computer | Players 1 and 2 are one team against the computer. Either one's Start begins the game on player 1's side; nobody can come in on the computer's side |
-| 2 vs 2 | Four players: 1 and 3 are one team, 2 and 4 the other. Either person of a team can Start (or continue) for it |
+| 2 vs 1 | P1 and P3 play the left team. P2 chooses and controls both right-side fighters. |
+| 1 vs 2 | P1 controls both left-side fighters. P2 and P3 play the right team. |
+| 2 vs 2 | Four players. **Four-player team order** defaults to P1/P3 vs P2/P4. Choose **P1/P2 vs P3/P4** to put P1 and P2 on the left. Either teammate can Start or continue for that side. |
 
-- **Choosing**: the team's first character is chosen by its first person (player 1 or 2), the second by its partner
-  (player 2 in co-op, else 3 or 4). Only the person choosing moves the cursor; the first person chooses the speed.
+- **Choosing**: the first person on each team chooses its first fighter, then the partner chooses the second. In the P1/P2 vs P3/P4 order, P1 and P3 choose first. A solo owner chooses both fighters. Only the person choosing moves the cursor.
 - **Fighting**: the controls are whoever plays the character on point. The partner tags in by pressing a strong
   punch and a strong kick together; the one on point can still tag out the same way, and team supers work as on the
-  board. A knock-out, a tag or a team super changes who is on point exactly when the game does.
+  board. A quarter-circle from the point controller plus HP+HK from the reserve requests a normal tag and
+  keeps the team's meter. The person on point enters the complete team Hyper or Duo command. A knock-out, a tag or a team
+  super changes who is on point exactly when the game does. [Input regression](../../tools/check_mvc_tag_motion.py).
 - A team that starts with its second character (all three punches held as the choosing ends) still has each person
   playing the character they chose.
 - A small label under each side's bars (P1-P4) says who is on point.
 - The launcher's Controllers page has keys and buttons for four players.
 - Online, a 2 vs 2 match is four people on up to four machines, all joining with the host's code: each on their own
   machine, or two at one with its player 1 and player 2 controls (People at this machine, on the Online page). The
-  host's are players 1 (and 3), the others' the rest in the order they came ([online play](../../docs/ONLINE.md)).
+  usual four single-controller machines receive P1 through P4 in joining order. A three-person room can use three singles or a pair and a single. In the latter case the pair takes the split team, whichever machine hosts. [Online setup](../../docs/ONLINE.md).
 
 ![The model viewer: Mega Man on white, twice his size](../../docs/screenshots/mvsc/model-viewer.png)
 
 ### Cross Fever
 
 The Dreamcast's mode for four people, on the board's game: "Cross Fever" on the Alternative modes page, with Tag team on
-(2 vs 2, or co-op). As on the Dreamcast, each character is moved by its own person all the time, where on the board a
+(co-op, 2 vs 2, 2 vs 1 or 1 vs 2). As on the Dreamcast, each character is moved by its own person all the time, where on the board a
 side's one panel moves both of its characters:
 
 - In a **Duo Team Attack** (down, down-back, back with a strong punch and a strong kick together; it takes the hyper
@@ -156,19 +159,38 @@ side's one panel moves both of its characters:
   person, both teams' at once when both are in theirs: specials, hypers and all. The attack lasts twice as long, its
   time taken off every other step of the game.
 - The person on point tags out (a strong punch and a strong kick), calls the special partner and starts the Duo Team
-  Attack; the partner's buttons move only the partner's character, so the partner can't call a tag in.
-- Both teams' hyper combo gauges fill slowly by themselves, besides what the fighting gives: one point every seventh
-  step of the game, so a level in 1,008 steps (14.5 seconds at seven steps in six frames), not during the team's own Duo
-  Team Attack. **Cross Fever gauges: Only by fighting** (Alternative modes page, the host's choice online) turns this
-  off.
+  Attack; with the default **Cross Fever tag → Point**, only that person can request the normal tag.
+- **Cross Fever gauges → Only by fighting** is the default. Standing idle adds nothing. The arcade awards meter
+  for eligible actions. **Fill by themselves** also adds one unit every seventh game step outside the team's own
+  Duo. This changes both teams' gauges and leaves independent fighter control available with either choice.
 - Start is the taunt of whoever is on point, and holding it keeps taunting. (On the Dreamcast Start alone pauses, so
   its taunt is the taunt button, light punch unless changed, with Start; holding both keeps taunting there.)
 - The rest is the board's, which the Dreamcast's game shares: how long the attack lasts (by the gauge's levels, and half
   the bar) and which of the two stays in when it ends (by what each is doing).
 
-Online it is the host's choice, as Tag team is.
+For four independent controllers, the host selects **Tag team → 2 vs 2** and **Cross Fever → On**.
+For three people, choose **2 vs 1** or **1 vs 2**. The solo player's controller follows both of that team's fighters during Duo.
+Each fighter on the paired team reads its own controller.
+
+For the stock timer, set **Cross Fever Duo time → Arcade** instead of the longer Dreamcast duration.
+**Cross Fever tag → Either** lets a resting teammate request a normal tag with a fresh HP+HK press.
+Hold both buttons through recovery to tag on the first legal frame. Release either button to cancel the request. **Cross Fever taunt → Start + LP** uses the
+Dreamcast's default pad chord. Keep the stick neutral and hold only that attack with Start. The other five attack
+choices allow a different binding for both sides. Start alone is the default.
+**Cross Fever rematch → Everyone reselects** returns both human teams to character select. The default
+**Arcade continue** keeps the board’s original winner/continue flow.
+For local play, **Pause on controller disconnect** opens the menu if a person in the fight loses their pad.
+The other controllers keep their slots. Close the menu to resume. An unused pad can be removed without stopping the fight.
+Online play continues when a pad disconnects.
+The host chooses the gameplay rules for the whole match. [Dreamcast comparison and test evidence](CROSS_FEVER.md).
 
 ![Cross Fever: both teams in their Duo Team Attacks, each of the four characters moved by its own person](../../docs/screenshots/mvsc/cross-fever.png)
+
+![Zangief and Spider-Man fighting with both helper counters, four player names, three direct RTT readings and both Hyper gauges visible](../../docs/screenshots/mvsc/cross-fever-online-hud.png)
+
+The host's view during a local four-process match with simulated latency. Names sit below the helper counters.
+The three direct RTT readings, ping estimate and input delay sit above the Hyper gauges. Esc opens the display
+options and the host’s team and Cross Fever rules.
 
 ## Widescreen
 

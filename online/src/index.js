@@ -7,8 +7,8 @@
 // then reach each other directly; nothing of the match goes through here. A waiting code lasts 30 minutes. An active,
 // spectator-enabled match renews its lifetime on host heartbeats. Every match is a Durable Object named by its code.
 //
-// A match is for two players, or four if its host says so (`players`: tag team's 2 vs 2), `here` of them at the
-// host's machine (1 unless said). Each who joins says how many play at theirs (`people`: 1 or 2; one in a match of
+// The host supplies the number of human players (`players`: 2, 3 or 4) and how many play at its machine
+// (`here`, 1 unless supplied). Each who joins says how many play at theirs (`people`: 1 or 2; one in a match of
 // two) and is let in while the match has room for them, with a number of its own (`ticket`); the host, asking, is
 // told each who joined (`joiners`: the number, then the addresses) and says back (`gone`) those who went before the
 // match began, or never came, which makes room for others. (A host from before `players` has a match of two: one
@@ -109,10 +109,10 @@ function cleanIds(list) {
   return Array.isArray(list) ? list.filter((id) => typeof id === "string" && /^[0-9a-f]{12}$/.test(id)).slice(0, 200) : [];
 }
 
-// A match's players (2, or 4 in tag team's 2 vs 2), those at the host's machine, and the room left: none once those who
-// joined fill it. A match from before `players` (stored without them) is for two.
+// Both asymmetric team layouts reserve three human seats. Older records without a count reserve two.
 function matchPlayers(match) {
-  return match.players === 4 ? 4 : 2;
+  const players = Number(match.players);
+  return players === 3 || players === 4 ? players : 2;
 }
 function joinersOf(match) {
   return Array.isArray(match.joiners) ? match.joiners : match.joiner ? [{ ticket: 0, people: 1, addresses: match.joiner }] : [];
@@ -120,7 +120,7 @@ function joinersOf(match) {
 function room(match) {
   return matchPlayers(match) - (match.here || 1) - joinersOf(match).reduce((n, j) => n + j.people, 0);
 }
-// Why one who would join can't: a match of two that has its player, or a match of four that is full
+// Keep the existing message for a full two-player match.
 function fullSaid(match) {
   return matchPlayers(match) === 2 ? "Someone has joined that match already." : "That match is full.";
 }
@@ -286,15 +286,19 @@ export class Match {
         return json({ error: "in use" }, 409);
       }
       const secret = typeof body.secret === "string" && /^[0-9a-f-]{36}$/.test(body.secret) ? body.secret : crypto.randomUUID();
-      const players = Number(body.players) === 4 ? 4 : 2;
-      const here = players === 4 && Number(body.here) === 2 ? 2 : 1;
+      const players = matchPlayers(body);
+      const protocol = Number(body.protocol) || 0;
+      if (players === 3 && (!Number.isInteger(protocol) || protocol < 11)) {
+        return json({ error: "Three-player matches require online protocol 11 or later." }, 400);
+      }
+      const here = players > 2 && Number(body.here) === 2 ? 2 : 1;
       // The same code and secret may be reopened while an old gone poll is still in flight. Never reuse its
       // ticket numbers while this match record exists, or that delayed removal could evict a new arrival.
       const tickets = match ? match.tickets || 0 : 0;
       match = { made: now, generation: crypto.randomUUID(), secret, game: cleanText(body.game), build: cleanText(body.build), host: cleanAddresses(body.addresses), joiners: [],
                 tickets, players, here,
                 listed: body.listed === true, name: cleanName(body.name), title: cleanText(body.title), version: cleanText(body.version),
-                protocol: Number(body.protocol) || 0, spectators: body.spectators === true, active: false, viewers: [],
+                protocol, spectators: body.spectators === true, active: false, viewers: [],
                 code: url.searchParams.get("code") || "",
                 invite: cleanIds([body.invite])[0] || null, from: cleanIds([body.from])[0] || "", invited: "" };
       // Commit before the Room RPC yields: a join during it must see this roster and must not have its ticket
@@ -412,12 +416,16 @@ export class Match {
         return json({ error: "The two copies of the game are different builds: use the same release on both." }, 409);
       }
       // A different wire protocol cannot finish the UDP handshake; reject it before reserving a player's place.
-      // Older clients/stored matches did not always supply this field, so keep their missing-field behavior.
-      if (Number(body.protocol) && match.protocol && Number(body.protocol) !== match.protocol) {
+      // Three-player rosters and hosts using the newer deterministic input routing require an explicit match.
+      // Older two/four-player hosts still accept clients which omit the protocol.
+      const players = matchPlayers(match), protocol = Number(body.protocol) || 0;
+      const hostProtocol = Number(match.protocol) || 0;
+      const exact = players === 3 || protocol >= 12 || hostProtocol >= 12 || (protocol && hostProtocol);
+      if (exact && protocol !== hostProtocol) {
         return json({ error: "The two copies of the game use different online protocols: use the same release on both." }, 409);
       }
       // (the people at the joining machine: one in a match of two, whatever it says)
-      const people = matchPlayers(match) === 4 && Number(body.people) === 2 ? 2 : 1;
+      const people = players > 2 && Number(body.people) === 2 ? 2 : 1;
       const left = room(match);
       if (left <= 0 || match.active) {
         return json({ error: fullSaid(match) }, 409);

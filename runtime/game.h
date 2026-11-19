@@ -95,6 +95,8 @@ struct Song {
 
 struct Game {
     std::vector<Feature> features;
+    void (*migrateSettings)(recomp::Ini &ini) = nullptr; // adapt older saved choices before reading them
+    void (*migrateOption)(std::string &name, int &value) = nullptr; // the equivalent old --features spellings
     std::vector<Command> commands;
     std::vector<Page> pages;
     void (*beforeFrame)(Machine &machine) = nullptr; // with the players' input set, before the game runs a frame
@@ -144,9 +146,15 @@ struct Game {
     // The game's sources decide the board's timing (machine.h, SetBoardTiming) in place of the port's arcade_timing
     // feature, which is then left out: a shooting game's Slowdown row (shmup/shmup.h). Not given: arcade_timing.
     bool (*boardTiming)() = nullptr;
-    // How many players an online match is for, as the host's features have it now (fight/tag.h sets it: four in
-    // 2 vs 2). Not given: two.
+    // How many players an online match is for, as the host's features have it now (fight/tag.h sets it to three or four
+    // for split-team versus). Not given: two.
     int (*matchPlayers)() = nullptr;
+    int onlineNamesY = 38; // first row of online labels in board pixels, below the native status display
+    int onlineBottomInset = 0; // board pixels occupied by native gauges under online notices
+    // Owner of the indicated team and fighter (0-based). A local pair can sit together on a split team.
+    int (*matchOwner)(int side, int pick) = nullptr;
+    // Offline play: whether losing this local gamepad during the current fight should open the pause menu.
+    bool (*pauseOnPadRemoval)(int seat) = nullptr;
     // For a custom soundtrack (machine/soundtrack.h): where the sound program's table of songs has song 0's entry,
     // and how many entries it has (0: no custom soundtrack); and the names of the music, where they are known.
     // musicBelow: for a sound program whose songs' data do not tell music from effects (machine/soundtrack.h), the
@@ -240,6 +248,7 @@ struct HudLine {
     int align;        // -1: the text starts at x; 0: is centred on it; 1: ends at it
     std::string text;
     uint8_t r = 255, g = 255, b = 255; // (its colour: white unless said)
+    bool pointMarker = false; // tag team's local player number below the life bar
     bool operator==(const HudLine &) const = default;
 };
 void SetHud(std::vector<HudLine> lines);

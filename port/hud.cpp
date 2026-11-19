@@ -13,6 +13,43 @@
 
 namespace port {
 
+static constexpr uint32_t kPanelColour = 0xFF1E1614u;
+
+int FitHudNames(std::vector<std::pair<std::string, bool>> &labels, int streak, int pixels) {
+    using namespace recomp::text;
+    const int count = static_cast<int>(labels.size());
+    if (!count) return 0;
+    const int cells = std::max(0, pixels / kCharWidth);
+    const auto length = [&](int i) {
+        const auto &s = labels[i].first;
+        return static_cast<int>(Count(s.data(), s.size()));
+    };
+    int used = 2 * (count - 1);
+    for (int i = 0; i < count; ++i) used += length(i);
+    if (used <= cells) return 2 * kCharWidth;
+
+    const int names = count - (streak > 0);
+    int left = cells - (count - 1); // one font cell between labels
+    if (streak > 0) {
+        // Keep the score visible beside at least the two-character owner labels on a narrow board.
+        if (left - length(names) < 2 * names) labels.back().first = "W" + std::to_string(streak);
+        if (left - length(names) < 2 * names) {
+            labels.pop_back();
+            ++left; // the gap before the streak is free too
+        } else {
+            left -= length(names);
+        }
+    }
+    // At most two teammates. Give any space an already-short name leaves to its partner.
+    const int cap = std::max(0, names == 2 ? std::max(left / 2, left - std::min(length(0), length(1))) : left);
+    for (int i = 0; i < names; ++i) {
+        auto &s = labels[i].first;
+        s.resize(Bytes(s.data(), s.size(), static_cast<size_t>(cap)));
+        if (!s.empty() && s.back() == ' ') s.pop_back();
+    }
+    return kCharWidth;
+}
+
 std::vector<HudPanel> HudPanels(int width, int height) {
     using namespace recomp::text;
     std::vector<HudPanel> panels;
@@ -26,6 +63,7 @@ std::vector<HudPanel> HudPanels(int width, int height) {
         // (a whole line in the player's language, where a table has it: port/i18n.h)
         const char *text = recomp::Tr(line.text.c_str());
         HudPanel panel;
+        panel.pointMarker = line.pointMarker;
         panel.width = static_cast<int>(TextWidth(text, d)) + 2 * pad;
         panel.height = static_cast<int>(8 * d) + 2 * pad;
         const int at = static_cast<int>(line.x * static_cast<float>(width));
@@ -36,7 +74,7 @@ std::vector<HudPanel> HudPanels(int width, int height) {
         if (panel.width > width || panel.height > height) {
             continue;
         }
-        panel.pixels.assign(static_cast<size_t>(panel.width) * panel.height, 0xFF000000u | (30 << 16) | (22 << 8) | 20);
+        panel.pixels.assign(static_cast<size_t>(panel.width) * panel.height, kPanelColour);
         const Canvas canvas{panel.pixels.data(), panel.width, panel.height};
         canvas.Text(static_cast<float>(pad), static_cast<float>(pad), d, 0, {line.r, line.g, line.b, 255}, text);
         panels.push_back(std::move(panel));
@@ -44,7 +82,7 @@ std::vector<HudPanel> HudPanels(int width, int height) {
     return panels;
 }
 
-void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *panels, unsigned parts) {
+void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *panels, unsigned parts, const HudOpacity *pointOpacity) {
     // The boxes first, so that the text is over them
     const recomp::text::Canvas canvas{pixels, width, height};
     for (const cps2recomp::HudBox &box : parts & kHudBoxes ? cps2recomp::Boxes() : std::vector<cps2recomp::HudBox>{}) {
@@ -85,6 +123,22 @@ void DrawHud(uint32_t *pixels, int width, int height, std::vector<SDL_Rect> *pan
     for (const HudPanel &panel : parts & kHudText ? HudPanels(width, height) : std::vector<HudPanel>{}) {
         if (panels) {
             panels->push_back({panel.x, panel.y, panel.width, panel.height});
+        }
+        if (panel.pointMarker && pointOpacity) {
+            canvas.Fill(panel.x, panel.y, panel.width, panel.height, {20, 22, 30, pointOpacity->panel});
+            for (int y = 0; y < panel.height; ++y) {
+                const uint32_t *glyph = panel.pixels.data() + static_cast<size_t>(y) * panel.width;
+                uint32_t *row = pixels + static_cast<size_t>(panel.y + y) * width + panel.x;
+                const unsigned alpha = pointOpacity->ink;
+                for (int x = 0; x < panel.width; ++x) {
+                    if (glyph[x] == kPanelColour) continue;
+                    const auto channel = [&](unsigned shift) {
+                        return ((((row[x] >> shift) & 255) * (255 - alpha) + ((glyph[x] >> shift) & 255) * alpha) / 255) << shift;
+                    };
+                    row[x] = 0xff000000u | channel(0) | channel(8) | channel(16);
+                }
+            }
+            continue;
         }
         for (int row = 0; row < panel.height; row++) {
             std::copy_n(&panel.pixels[static_cast<size_t>(row) * panel.width], panel.width,

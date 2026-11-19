@@ -18,6 +18,7 @@
 
 #include "game_info.h"
 #include "../fight/battle.h"
+#include "../recomp-common/i18n.h"
 #include "../recomp-common/launcher/src/online.h"
 #include "../recomp-common/launcher/src/run_program.h"
 #include "../runtime/game.h"
@@ -453,7 +454,10 @@ void Netplay::SendTo(const NetAddress &to, const std::vector<uint8_t> &packet) {
     if (settings.fakeLag || settings.fakeJitter) {
         random = random * 6364136223846793005ull + 1442695040888963407ull;
         const int jitter = settings.fakeJitter ? static_cast<int>((random >> 33) % (2 * settings.fakeJitter + 1)) - settings.fakeJitter : 0;
-        late.push_back({NowMs() + static_cast<uint64_t>(std::max(0, settings.fakeLag + jitter)), to, packet});
+        const uint64_t due = NowMs() + static_cast<uint64_t>(std::max(0, settings.fakeLag + jitter));
+        const auto pos = std::upper_bound(late.begin(), late.end(), due,
+            [](uint64_t time, const Late &item) { return time < item.due; });
+        late.insert(pos, {due, to, packet});
         return;
     }
     socket.Send(to, packet.data(), packet.size());
@@ -506,8 +510,7 @@ void Netplay::StartAt(int frames) {
     eventFrom = UINT64_MAX;
 }
 
-// The players the match is for, as the host's features have it (Game::matchPlayers: four in tag team's 2 vs 2), two
-// otherwise
+// Human seats required by the host's selected layout. Games without a layout selector use two.
 int Netplay::MatchPlayers() const {
     return TheGame().matchPlayers ? std::clamp(TheGame().matchPlayers(), 2, static_cast<int>(Machine::kMaxPlayers)) : 2;
 }
@@ -553,14 +556,29 @@ int Netplay::MachineOf(int player) const {
 void Netplay::Assign() {
     machines = 1 + static_cast<int>(links.size());
     bool taken[Machine::kMaxPlayers] = {};
+    // In a three-human match with one dual-controller machine, that pair owns the split team. Reserve
+    // the solo owner even if their machine arrives first. Three single-controller machines keep join order.
+    int solo = -1;
+    const auto owner = TheGame().matchOwner;
+    if (needed == 3 && machines == 2 && owner) {
+        for (int side = 0; side < 2; ++side)
+            if (owner(side, 0) == owner(side, 1)) solo = owner(side, 0);
+    }
     const auto give = [&](Seats &seats, int count, const std::string &name) {
         seats.people = count;
         seats.name = name;
         int n = 0;
+        if (count == 1 && solo >= 0 && solo < needed && !taken[solo]) {
+            seats.players[n++] = solo;
+            taken[solo] = true;
+        }
         for (int team = 0; count == 2 && n == 0 && team < 2; team++) {
-            if (!taken[team] && !taken[team + 2]) {
-                seats.players = {team, team + 2};
-                taken[team] = taken[team + 2] = true;
+            const int first = owner ? owner(team, 0) : team;
+            const int second = owner ? owner(team, 1) : team + 2;
+            if (first >= 0 && first < needed && second >= 0 && second < needed &&
+                first != second && !taken[first] && !taken[second]) {
+                seats.players = {first, second};
+                taken[first] = taken[second] = true;
                 n = 2;
             }
         }
@@ -680,6 +698,7 @@ bool Netplay::Begin(Port &port, std::string &error) {
     }
     local = settings.hosting ? 0 : 1; // (joining: which, the host says as the match begins)
     build = BuildHash(port);
+    fprintf(stderr, "online: %s %s, protocol %d, game signature %08x\n", GAME_ID, RECOMP_VERSION, kProtocol, build);
     began = NowMs();
     if (settings.hosting) {
         StartAt(settings.delay);
@@ -976,10 +995,6 @@ bool Netplay::Introduce(uint64_t now, std::string &error) {
         if (answer.status == 200) {
             if (settings.watching) {
                 watchToken = JsonText(answer.body, "token");
-                Writer hello(kWatchHello);
-                hello.U16(kProtocol); hello.Text(GAME_ID); hello.U32(build);
-                hello.Text(RECOMP_VERSION); hello.Text(settings.name); hello.Text(watchToken);
-                greeting = hello.out;
             }
             for (const std::string &text : JsonList(answer.body, "addresses")) {
                 NetAddress to;
@@ -1135,6 +1150,8 @@ int Netplay::Waiting(Port &port, std::string &error) {
                     why = "The other player started " + game + ", this side " GAME_ID ".";
                 } else if (theirs != build) {
                     why = "The two copies of the game are different builds: use the same release on both.";
+                } else if (!in.ok) {
+                    continue;
                 } else if (!link && Wanted() == 0) {
                     why = needed > 2 ? "That match is full." : "Someone has joined that match already.";
                 } else if (!link && bringing > Wanted()) {
@@ -1284,8 +1301,9 @@ int Netplay::Waiting(Port &port, std::string &error) {
         return 0;
     }
     if (!welcomed && now - began > 30000) {
-        error = joinCode.empty() ? "The host did not answer. Is it waiting, and can this machine reach it on UDP port " + std::to_string(joinPort) + "?"
-                                 : "The host of match " + Spaced(joinCode) + " couldn't be reached through the two networks' routers.";
+        error = joinCode.empty()
+            ? recomp::i18n::TrFormat("The host did not answer. Is it waiting, and can this machine reach it on UDP port {}?", {std::to_string(joinPort)})
+            : recomp::i18n::TrFormat("The host of match {} did not answer over UDP. Check that the host is still waiting. Try another host or a reachable UDP address.", {Spaced(joinCode)});
         return -1;
     }
     if (welcomed && now - links[0].lastHeard > 10000) {
@@ -1386,7 +1404,7 @@ int Netplay::Waiting(Port &port, std::string &error) {
                     sense = seats[m].people >= 1 && seats[m].people <= kMostSeats;
                     for (int person = 0; sense && person < seats[m].people; person++) {
                         const int player = in.U8();
-                        sense = player < Machine::kMaxPlayers && !taken[player];
+                        sense = player < needed && !taken[player];
                         if (sense) {
                             seats[m].players[person] = player;
                             taken[player] = true;
@@ -1394,7 +1412,7 @@ int Netplay::Waiting(Port &port, std::string &error) {
                     }
                     seats[m].name = in.Text();
                 }
-                if (!sense || !in.ok) {
+                if (!sense || !in.ok || std::count(std::begin(taken), std::end(taken), true) != needed) {
                     error = "The host's start did not make sense.";
                     return -1;
                 }
@@ -1486,7 +1504,7 @@ int Netplay::Waiting(Port &port, std::string &error) {
             rosterOk = rosterOk && total == needed;
             set.Load(saved);
         }
-        if (!in.ok || !rosterOk || (needed != 2 && needed != 4)) {
+        if (!in.ok || !rosterOk || needed != MatchPlayers()) {
             error = "The host's welcome did not make sense.";
             return -1;
         }
@@ -1566,6 +1584,13 @@ int Netplay::Ping() const {
     return most;
 }
 
+int Netplay::DirectRtt(int machine) const {
+    for (const Link &link : links) {
+        if (link.machine == machine) return static_cast<int>(std::lround(link.ping));
+    }
+    return -1;
+}
+
 uint64_t Netplay::Silent() const {
     const uint64_t now = NowMs();
     uint64_t most = 0;
@@ -1596,8 +1621,14 @@ uint64_t Netplay::Slowest() const {
     return least;
 }
 
-void Netplay::SendInputs() {
+void Netplay::SendInputs(uint64_t now) {
     if (settings.watching) return;
+    // Ready can poll repeatedly while a frame is stalled. Send any new relay data or acknowledgements
+    // immediately. When all streams and the frame stand still, retry after roughly two board ticks.
+    if (controlsSentFrame == current && controlsSentUpTo == upTo && now - controlsSentAt < 32) return;
+    controlsSentAt = now;
+    controlsSentFrame = current;
+    controlsSentUpTo = upTo;
     for (Link &link : links) {
         SendInputs(link);
     }
@@ -1839,8 +1870,10 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
     }
     link.started = true;
     link.lastHeard = now;
+    // An older datagram may still carry missing controls. Only a newer timing sample should steer the clock.
+    // The sender's millisecond clock wraps at 32 bits. Packets with the same tick carry equivalent timing.
+    const bool freshTiming = !link.echoAt || (sentAt != link.echo && static_cast<uint32_t>(sentAt - link.echo) < 0x80000000u);
     link.frame = std::max(link.frame, frame);
-    link.theirAhead = theirs;
     for (int machine = 0; machine < machines && machine < static_cast<int>(acks); machine++) {
         link.has[machine] = std::max(link.has[machine], has[machine]);
     }
@@ -1867,12 +1900,14 @@ void Netplay::Take(Link &link, const uint8_t *data, size_t size) {
     if (hashFrame) {
         link.hashes[hashFrame] = hash;
     }
+    if (!freshTiming) return;
+    link.theirAhead = theirs;
     link.echo = sentAt;
     link.echoAt = now;
     if (echoed) {
         const double rtt = static_cast<double>(static_cast<uint32_t>(static_cast<uint32_t>(now) - echoed - held));
         if (rtt < 10000) {
-            link.ping = link.ping ? link.ping * 0.9 + rtt * 0.1 : rtt;
+            link.ping = link.ping >= 0 ? link.ping * 0.9 + rtt * 0.1 : rtt;
         }
     }
     if (!settings.hosting) {
@@ -1949,7 +1984,7 @@ bool Netplay::Ready(uint64_t frame) {
         }
         if (ended.empty() && SetAgrees()) {
             if (!setAgreed) setAgreed = now;
-            SendInputs();
+            SendInputs(now);
             if (now - setAgreed >= 2000) FinishSet();
             return false;
         }
@@ -1981,25 +2016,29 @@ bool Netplay::Ready(uint64_t frame) {
     }
     // Too far ahead of another machine's controls: wait for them
     if (frame >= Slowest() + kMostAhead) {
+        predictionWaits++;
         waits++;
-        SendInputs();
+        SendInputs(now);
         return false;
     }
-    // Ahead of another machine in time (each one's own idea of how far ahead it is, compared): a tick waited now and
-    // then, until even (the host keeps time with the slowest of the joining machines, each of them with the host)
-    if (frame % 60 == 0 && frame != waitedAt && waitTicks == 0) {
-        double by = 0;
+    // Sample the clock once per second of play, as upstream does. Only spend the remaining
+    // budget while a peer's latest simulation frame still places it behind us.
+    if (frame && frame != waitedAt && (waitTicks || frame % 60 == 0)) {
+        double lead = 0;
         for (const Link &link : links) {
-            by = std::max(by, (link.ahead - link.theirAhead) / 2);
+            if (link.frame >= frame) continue;
+            const double estimate = (link.ahead - link.theirAhead) / 2;
+            lead = std::max(lead, std::min(estimate, static_cast<double>(frame - link.frame)));
         }
-        waitTicks = by >= 1 ? std::min(static_cast<int>(by), 8) : 0;
-    }
-    if (waitTicks > 0 && frame != waitedAt) {
-        waitedAt = frame;
-        waitTicks--;
-        waits++;
-        SendInputs();
-        return false;
+        const int available = static_cast<int>(std::min(lead, 8.0));
+        waitTicks = frame % 60 == 0 ? available : std::min(waitTicks, available);
+        if (waitTicks > 0) {
+            --waitTicks;
+            waitedAt = frame;
+            waits++;
+            SendInputs(now);
+            return false;
+        }
     }
     return true;
 }
@@ -2076,7 +2115,7 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
     for (Link &link : links) {
         link.ahead = link.ahead * 0.95 + (static_cast<double>(frame) - static_cast<double>(link.frame)) * 0.05;
     }
-    SendInputs();
+    SendInputs(NowMs());
     // A wrong guess since the last frame that had every machine's real controls (the first frame where any machine's
     // real ones differ from those it was run with): back to it, and on to here again, unseen and unheard (the sound
     // of those frames has been heard)
@@ -2134,7 +2173,7 @@ void Netplay::Frame(Port &port, const uint16_t *controls) {
                     pads[roster[machine].players[person]] = inputs[machine][at % kInputs][person];
                 }
             }
-            port.recMovie.changes[at] = pads;
+            port.recMovie.RecordConfirmed(at, pads);
         }
         if (port.hashFile) {
             fprintf(port.hashFile, "%llu %08x\n", static_cast<unsigned long long>(at + 1), k.hash);
@@ -2186,6 +2225,14 @@ std::vector<std::pair<int, std::string>> Netplay::TakeEvents() {
 }
 
 void Netplay::BeginSet() {
+    std::string rules;
+    for (const Feature &feature : TheGame().features) {
+        if (feature.flags & kFeatureMatch) {
+            if (!rules.empty()) rules += ",";
+            rules += std::string(feature.name) + "=" + std::to_string(FeatureSetting(feature.name));
+        }
+    }
+    if (!rules.empty()) fprintf(stderr, "online: settled match rules %s\n", rules.c_str());
     if (settings.watching) { // (a viewer has the host's set as of where it came in: Waiting)
         fprintf(stderr, "online: set format %s, %d-%d\n", set.Target() == 5 ? "FT5" : set.Target() == 10 ? "FT10" : "Casual",
                 set.Score(0), set.Score(1));
@@ -2207,7 +2254,9 @@ bool Netplay::SetAgrees() const {
 void Netplay::FinishSet() {
     setFinished = true;
     left = lost = false;
-    ended = "Player " + std::to_string(set.Winner() + 1) + " wins the FT" + std::to_string(set.Target()) +
+    const std::string winner = needed > 2 ? (set.Winner() == 0 ? "Left team" : "Right team")
+                                          : "Player " + std::to_string(set.Winner() + 1);
+    ended = winner + " wins the FT" + std::to_string(set.Target()) +
             " set (" + std::to_string(set.Score(0)) + "-" + std::to_string(set.Score(1)) + ").";
 }
 
@@ -2428,6 +2477,18 @@ void Netplay::Report(bool last) {
             static_cast<unsigned long long>(current), ping, static_cast<unsigned long long>(rollbacks),
             static_cast<unsigned long long>(rollbacks - reportedRollbacks), static_cast<unsigned long long>(rerun), mostRerun,
             static_cast<unsigned long long>(waits), worst * 1000, static_cast<unsigned long long>(over));
+    if (!settings.watching) {
+        fprintf(stderr, "online: delay %d frames, prediction waits %llu, pacing waits %llu\n",
+                delay, static_cast<unsigned long long>(predictionWaits), static_cast<unsigned long long>(waits - predictionWaits));
+        for (const Link &link : links) {
+            if (link.ping < 0) {
+                fprintf(stderr, "online: machine %d to machine %d awaiting first RTT sample\n", local, link.machine);
+                continue;
+            }
+            fprintf(stderr, "online: machine %d to machine %d direct RTT %.0f ms, last heard %llu ms ago\n",
+                    local, link.machine, link.ping, static_cast<unsigned long long>(link.lastHeard ? now - std::min(now, link.lastHeard) : 0));
+        }
+    }
     reportedRollbacks = rollbacks;
 }
 

@@ -3,6 +3,10 @@
 // ROM-free protocol regressions. Compile the production translation unit, so these exercise the same packet,
 // socket and state-transition code as the game. Unused game-dependent sections are removed by the linker.
 #include "../port/netplay.cpp"
+#include "../port/hud.h"
+#include "../recomp-common/text.h"
+#include "../port/online_pad_queue.h"
+#include "../fight/tag.h"
 
 #include <iostream>
 #include <stdexcept>
@@ -18,7 +22,11 @@ void Require(bool condition, const std::string &message) {
 // These dependencies belong to introduction branches the tests do not enter. Fail explicitly if a test starts
 // consulting game features or discovering external interfaces; no game state or service is needed here.
 namespace cps2recomp {
-int FeatureValue(const char *) {
+Game &TheGame() { static Game game; return game; }
+int testTagMode = -1, testTeamOrder = 0;
+int FeatureValue(const char *name) {
+    if (!strcmp(name, tag::kFeature) && testTagMode >= 0) return testTagMode;
+    if (!strcmp(name, tag::kTeamOrder)) return testTeamOrder;
     throw std::runtime_error("unexpected game feature lookup");
 }
 }
@@ -266,11 +274,8 @@ struct NetplayTest {
         }
     }
 
-    static void Rosters() {
-        const std::vector<std::vector<std::vector<int>>> expected = {
-            {{0, 2}, {1}, {3}}, {{0}, {1, 3}, {2}}, {{0}, {1}, {2, 3}},
-            {{0}, {1}, {2}, {3}}, {{0, 2}, {1, 3}},
-        };
+    using RoomLayouts = std::vector<std::vector<std::vector<int>>>;
+    static void CheckRosters(const RoomLayouts &expected) {
         for (const auto &seats : expected) {
             Netplay host(Settings(true));
             host.needed = 4;
@@ -309,6 +314,91 @@ struct NetplayTest {
                 Require(reader.ok && reader.at == reader.end, "malformed start roster");
             }
         }
+    }
+
+    static void Rosters() {
+        CheckRosters({{{0, 2}, {1}, {3}}, {{0}, {1, 3}, {2}}, {{0}, {1}, {2, 3}},
+                      {{0}, {1}, {2}, {3}}, {{0, 2}, {1, 3}}});
+    }
+
+    static void AlternateTeamOrder() {
+        const auto previous = TheGame();
+        tag::Description description;
+        description.teamOrder = description.threePlayers = true;
+        tag::Register(description);
+        testTagMode = tag::kVersus;
+        testTeamOrder = 1;
+        CheckRosters({{{0}, {1}, {2}, {3}}, {{0, 1}, {2, 3}}, {{0, 1}, {2}, {3}},
+                      {{0}, {2, 3}, {1}}, {{0}, {1}, {2, 3}}});
+
+        Netplay host(Settings(true));
+        host.needed = 4;
+        UdpSocket socket;
+        ConnectReceiver(host, socket);
+        auto options = Settings(false);
+        options.watching = true;
+        Netplay viewer(options);
+        viewer.Hello();
+        auto hello = viewer.greeting;
+        hello[5] = Netplay::kProtocol - 1; // the same game, version and signature on the previous protocol
+        const auto &from = host.links[0].address;
+        for (int order : {1, 0}) {
+            testTeamOrder = order;
+            host.WatchPacket(hello.data(), hello.size(), from);
+            Require(host.viewers.empty() && Receive(socket, 1)[0][4] == kRefuse,
+                    "a previous-protocol viewer entered the room");
+            host.WatchPacket(viewer.greeting.data(), viewer.greeting.size(), from);
+            Require(host.viewers.size() == 1, "matching-protocol viewer refused");
+            host.viewers.clear();
+        }
+
+        testTagMode = -1;
+        TheGame() = previous;
+    }
+
+    static void AsymmetricRosters() {
+        tag::Description description;
+        description.threePlayers = true;
+        tag::Register(description);
+        for (const auto mode : {tag::kTwoVsOne, tag::kOneVsTwo}) {
+            testTagMode = mode;
+            const int split = mode == tag::kTwoVsOne ? 0 : 1;
+            const int solo = 1 - split;
+            Require(TheGame().matchPlayers() == 3, "wrong human count for asymmetric match");
+            Require(tag::Person(solo, 0) == solo && tag::Person(solo, 1) == solo,
+                    "solo player's picks do not share a controller");
+            Require(tag::Person(split, 0) == split && tag::Person(split, 1) == 2,
+                    "teammates do not have distinct controllers");
+            const std::vector<std::vector<std::vector<int>>> layouts{
+                {{0}, {1}, {2}}, {{split, 2}, {solo}}, {{solo}, {split, 2}}};
+            for (const auto &layout : layouts) {
+                Netplay host(Settings(true));
+                host.needed = host.MatchPlayers();
+                host.people = static_cast<int>(layout[0].size());
+                host.links.resize(layout.size() - 1);
+                for (size_t m = 1; m < layout.size(); ++m)
+                    host.links[m - 1].people = static_cast<int>(layout[m].size());
+                Require(host.Wanted() == 0, "three people should fill the match");
+                host.Assign();
+                for (size_t m = 0; m < layout.size(); ++m) {
+                    for (size_t p = 0; p < layout[m].size(); ++p) {
+                        Require(host.roster[m].players[p] == layout[m][p], "incorrect asymmetric roster");
+                    }
+                }
+                Require(host.MachineOf(3) == -1, "phantom fourth player");
+            }
+            // A partial three-person roster can have two one-seat machines before it fills.
+            Netplay partial(Settings(true));
+            partial.needed = 3;
+            partial.people = 1;
+            partial.links.resize(1);
+            partial.links[0].people = 1;
+            partial.Assign();
+            Require(partial.Player(0, 0) != partial.Player(1, 0), "the solo seat was assigned twice");
+        }
+        testTagMode = -1;
+        TheGame().matchOwner = nullptr;
+        TheGame().matchPlayers = nullptr;
     }
 
     static uint16_t InputAt(int machine, int frame) {
@@ -406,6 +496,260 @@ struct NetplayTest {
         Receive(receiver, 1);
     }
 
+    static void TimingSamples() {
+        Netplay peer(Settings(false));
+        auto &link = peer.links.emplace_back();
+        peer.machines = 2;
+        peer.local = 1;
+        // An older timing sample can carry a useful cumulative acknowledgement.
+        auto deliver = [&](uint32_t timestamp, uint8_t ack, int ahead) {
+            Writer w(kControls);
+            w.U32(7); w.U8(0); // simulation frame and number of control blocks
+            w.U8(2); w.U32(0); w.U32(ack);
+            w.U16(ahead * 100); w.U32(0); w.U32(0);
+            w.U32(timestamp); w.U32(0); w.U32(0); w.U16(40 + ahead);
+            peer.Take(link, w.out.data(), w.out.size());
+        };
+        deliver(UINT32_MAX - 3, 1, 1);
+        deliver(2, 2, 2); // wraps forward six milliseconds
+        deliver(UINT32_MAX - 1, 3, 7); // old packet arriving late
+        Require(link.theirAhead == 2 && link.farthest == 42 && link.echo == 2 && link.has[1] == 3,
+                "late timing sample reset pacing or dropped a useful acknowledgement");
+        deliver(2, 3, 7); // duplicate timestamp
+        Require(link.theirAhead == 2, "duplicate timing sample changed the pacing estimate");
+
+        // Give a later datagram a deliberately shorter simulated transit time.
+        peer.settings.fakeLag = 2000;
+        peer.SendTo({}, {1});
+        peer.settings.fakeLag = 1;
+        peer.SendTo({}, {2});
+        Require(peer.late.size() == 2 && peer.late.front().data.front() == 2,
+                "simulator hid reordering behind the oldest queued packet");
+    }
+
+    static void FourPeerPacing() {
+        Netplay host(Settings(true)), guest(Settings(false));
+        host.needed = guest.needed = host.machines = guest.machines = 4;
+        host.links.resize(3);
+        host.Assign();
+        guest.local = 3;
+        guest.links.resize(1);
+        const uint64_t start = 60 * 60 * 4;
+        // The host sees three guests; this guest sees only the host. Other guest links stay level.
+        const auto tick = [&](Netplay &peer, uint64_t frame, double estimatedLead, int latestLead) {
+            peer.upTo.fill(frame + 1);
+            for (auto &link : peer.links) {
+                const bool paired = link.machine == (peer.Hosting() ? 3 : 0);
+                link.started = true;
+                link.lastHeard = NowMs();
+                const uint64_t reported = paired ? static_cast<uint64_t>(static_cast<int64_t>(frame) - latestLead) : frame;
+                link.frame = std::max(link.frame, reported);
+                link.ahead = paired ? estimatedLead : 0;
+                link.theirAhead = -link.ahead;
+            }
+            if (peer.Ready(frame)) return 0;
+            Require(peer.Ready(frame), "clock correction repeatedly blocked the same frame");
+            return 1;
+        };
+        // A consistent 1.5-frame lead with bounded noise, then both level with occasional single-frame
+        // bursts of noise inside the window, then the other peer ahead. Count pauses on both machines.
+        const double jitter[] = {-0.20, 0.15, 0.25, -0.10, 0.05, -0.25, 0.20};
+        const std::array<std::array<int, 2>, 3> expected = {{{5, 0}, {0, 0}, {0, 5}}};
+        for (int phase = 0; phase < 3; ++phase) {
+            std::array<int, 2> pauses{};
+            for (int i = 0; i < 300; ++i) {
+                const uint64_t frame = start + phase * 300 + i;
+                const double by = (phase == 0 ? 1.5 : phase == 2 ? -1.5 :
+                                   i % 60 == 20 ? 1.8 : i % 60 == 40 ? -1.8 : 0.0) + jitter[i % 7];
+                const int latest = by > 1 ? 2 : by < -1 ? -2 : 0;
+                pauses[0] += tick(host, frame, by, latest);
+                pauses[1] += tick(guest, frame, -by, -latest);
+            }
+            std::cout << "four-peer clock window " << phase + 1 << " (300 frames): host " << pauses[0]
+                      << ", guest " << pauses[1] << " pacing waits\n";
+            Require(pauses == expected[phase], "a fractional lead was ignored or the two clocks chased jitter");
+        }
+
+        // Stop spending the eight-tick budget as soon as the latest peer frame catches up. A fresh
+        // lead in the same second gets a new budget only at the following 60-frame boundary.
+        const uint64_t recovery = start + 960;
+        for (int i = 0; i <= 60; ++i) {
+            const int latest = i < 3 || i >= 8 ? 8 : 0;
+            const int waited = tick(host, recovery + i, 8, latest);
+            Require(waited == (i < 3 || i == 60), "fixed budget failed to stop at catch-up or refilled too soon");
+        }
+        // Prediction uses the actual remote input, independently of the softer clock correction.
+        const uint64_t boundary = recovery + 61;
+        host.upTo.fill(boundary + 1);
+        host.upTo[3] = boundary - Netplay::kMostAhead;
+        Require(!host.Ready(boundary) && host.predictionWaits == 1, "timing bypassed the hard prediction limit");
+        ++host.upTo[3];
+        host.links[2].frame = boundary;
+        Require(host.Ready(boundary), "new real input failed to release the prediction stall");
+    }
+
+    static void TopHudNames() {
+        using Labels = std::vector<std::pair<std::string, bool>>;
+        using namespace recomp::text;
+        const Labels names{{"P1 ABCDEFGHIJKLMNOP", true}, {"P3 ÉéÇçÑßÉéÇçÑßÉéÇç", false}};
+        for (int width : {224, 384, 512}) {
+            for (int scorePixels : {0, 24, 36}) { // half-width of the reserved casual / FT5 / FT10 strip
+                for (int wins : {0, 2, 125, 1234567890}) {
+                    Labels row = names;
+                    if (wins) row.push_back({"STREAK " + std::to_string(wins), true});
+                    const int budget = width / 2 - scorePixels - 14;
+                    const int gap = FitHudNames(row, wins, budget);
+                    int drawn = (static_cast<int>(row.size()) - 1) * gap;
+                    for (const auto &part : row) drawn += static_cast<int>(TextWidth(part.first.c_str(), 1));
+                    Require(drawn <= budget, "top name panel covers the other team or the first-to score");
+                    for (size_t i = 0; i < names.size(); ++i) {
+                        const auto &original = names[i].first;
+                        const auto &shown = row[i].first;
+                        const size_t chars = Count(shown.data(), shown.size());
+                        Require(shown.starts_with(original.substr(0, 2)) && original.starts_with(shown) &&
+                                Bytes(original.data(), original.size(), chars) == shown.size() && row[i].second == names[i].second,
+                                "top name lost the controller number, a UTF-8 character, or the point indicator");
+                    }
+                }
+            }
+        }
+        Labels shortNames{{"P1 AB", true}, {"P3 CD", false}, {"STREAK 2", true}};
+        const auto original = shortNames;
+        Require(FitHudNames(shortNames, 2, 180) == 2 * kCharWidth && shortNames == original,
+                "a short row lost its original labels or spacing");
+    }
+
+    static void WindowStallInputs() {
+        using Pads = OnlinePadQueue::Pads;
+        Require(SDL_Init(SDL_INIT_GAMEPAD), "SDL gamepad init");
+        SDL_VirtualJoystickDesc desc{};
+        SDL_INIT_INTERFACE(&desc);
+        desc.name = "online input sample";
+        desc.type = SDL_JOYSTICK_TYPE_GAMEPAD;
+        desc.nbuttons = SDL_GAMEPAD_BUTTON_COUNT;
+        desc.naxes = SDL_GAMEPAD_AXIS_COUNT;
+        std::array<SDL_JoystickID, 2> ids{};
+        std::array<SDL_Gamepad *, 2> physical{};
+        for (size_t i = 0; i < ids.size(); ++i) {
+            ids[i] = SDL_AttachVirtualJoystick(&desc);
+            physical[i] = SDL_OpenGamepad(ids[i]);
+            Require(physical[i], "open virtual pad");
+        }
+        Netplay peer(Settings(false));
+        peer.local = 1;
+        auto &host = peer.links.emplace_back();
+        host.started = true;
+        uint64_t frame = 200;
+        OnlinePadQueue queue;
+        const auto poll = [&](Pads held, uint64_t ms, bool stalled, Pads expected) {
+            Pads mapped{};
+            for (size_t i = 0; i < physical.size(); ++i) {
+                SDL_Joystick *joy = SDL_GetGamepadJoystick(physical[i]);
+                Require(SDL_SetJoystickVirtualButton(joy, SDL_GAMEPAD_BUTTON_DPAD_LEFT, held[i] & kLeft), "left");
+                Require(SDL_SetJoystickVirtualButton(joy, SDL_GAMEPAD_BUTTON_SOUTH, held[i] & kPunch1), "south");
+                Require(SDL_SetJoystickVirtualButton(joy, SDL_GAMEPAD_BUTTON_EAST, held[i] & kPunch2), "east");
+            }
+            SDL_UpdateGamepads();
+            for (size_t i = 0; i < physical.size(); ++i) {
+                if (SDL_GetGamepadButton(physical[i], SDL_GAMEPAD_BUTTON_DPAD_LEFT)) mapped[i] |= kLeft;
+                if (SDL_GetGamepadButton(physical[i], SDL_GAMEPAD_BUTTON_SOUTH)) mapped[i] |= kPunch1;
+                if (SDL_GetGamepadButton(physical[i], SDL_GAMEPAD_BUTTON_EAST)) mapped[i] |= kPunch2;
+            }
+            Require(mapped == held, "SDL lost a sample before the pacing test");
+            auto supplied = queue.Poll(mapped, ms);
+            host.lastHeard = NowMs();
+            peer.upTo[0] = stalled ? frame - Netplay::kMostAhead : frame;
+            Require(peer.Ready(frame) == !stalled, "unexpected prediction gate");
+            if (!stalled) {
+                Require(supplied == expected, "lost, combined, or transferred a stalled owner's input");
+                queue.Accepted();
+                ++frame;
+            }
+        };
+        poll({}, 0, false, {});
+        poll({kPunch1, kPunch2}, 10, true, {});
+        poll({0, kPunch1 | kPunch2}, 20, true, {});
+        poll({kPunch2, 0}, 30, false, {kPunch1, kPunch2});
+        poll({kPunch2, 0}, 47, false, {0, kPunch1 | kPunch2});
+        poll({kPunch2, 0}, 64, false, {kPunch2, 0});
+        poll({}, 81, false, {});
+
+        // Hold back throughout two separate LP taps. Count all four press/release transitions
+        // across the wait and let unchanged polls drain them one game frame at a time.
+        const Pads back{kLeft, 0}, jab{kLeft | kPunch1, 0};
+        poll(back, 82, false, back);
+        poll(jab, 90, true, {});
+        poll(back, 98, true, {});
+        poll(jab, 106, true, {});
+        poll(back, 114, true, {});
+        poll(back, 121, false, jab);
+        poll(back, 138, false, back);
+        poll(back, 155, false, jab);
+        poll(back, 172, false, back);
+        poll(back, 189, false, back);
+
+        // MP starts while LP is still down. Only the sampled overlap forms a chord. The
+        // guest's local second controller holds its own attack independently of seat one.
+        const Pads lp{kPunch1, kPunch2}, chord{kPunch1 | kPunch2, kPunch2}, mp{kPunch2, kPunch2};
+        poll(lp, 200, true, {});
+        poll(chord, 205, true, {});
+        poll(mp, 210, false, lp);
+        poll(mp, 224, false, chord);
+        poll(mp, 241, false, mp);
+        poll({}, 258, false, {});
+        for (size_t i = 0; i < ids.size(); ++i) {
+            SDL_CloseGamepad(physical[i]);
+            SDL_DetachVirtualJoystick(ids[i]);
+        }
+        SDL_Quit();
+
+        queue.Clear();
+        queue.Poll({kLeft, kPunch1}, 100);
+        queue.Poll({kRight, kPunch1}, 101);
+        queue.Poll({kRight, kPunch2}, 102);
+        queue.ReleaseSeat(1); // local seat 0's two directions survive loss of its teammate
+        Require(queue.Poll({kRight, 0}, 103) == Pads{kLeft, 0}, "disconnect changed another seat's input");
+        queue.Accepted();
+        Require(queue.Poll({kRight, 0}, 104) == Pads{kRight, 0}, "opposite directions were combined");
+        queue.Clear(); // reconnect/menu boundary: no old directional edge
+        Require(queue.Poll({}, 105) == Pads{}, "controls survived session reset");
+
+        queue.Poll({kPunch1, 0}, 110);
+        Require(queue.Poll({}, 210) == Pads{}, "expired tap survived a prolonged network wait");
+        queue.Poll({kPunch1, 0}, 211);
+        Require(queue.Poll({0, kPunch2}, 212) == Pads{0, kPunch2}, "expired queue did not stay live until resume");
+        queue.Accepted();
+        for (int i = 0; i < 4; ++i) queue.Poll({static_cast<uint16_t>(i + 1), 0}, 220 + i);
+        Require(queue.Poll({}, 224) == Pads{}, "overflow replayed old controls or lost a release");
+        Require(queue.Poll({0, kPunch1}, 225) == Pads{0, kPunch1}, "overflow did not respect current controls");
+        queue.Accepted();
+    }
+
+    static void StalledRetries() {
+        Netplay host(Settings(true));
+        host.needed = host.machines = 4;
+        host.links.resize(3);
+        host.Assign();
+        host.settings.fakeLag = 4000; // hold the real outgoing packets for inspection
+        // A 320 ms input gap, polled each millisecond. Advancing the wall clock alone should resend
+        // periodically. It must not generate one duplicate per poll to each of the three guests.
+        for (uint64_t ms = 0; ms < 320; ++ms) host.SendInputs(ms);
+        Require(host.late.size() == 30, "stalled input retries scaled with poll rate");
+        host.upTo[2] = 1; // new input relayed from guest 2 while guest 3 still stalls the match
+        host.inputs[2][0][0] = 0x12;
+        host.SendInputs(319);
+        Require(host.late.size() == 33, "fresh relayed data was suppressed during a prediction stall");
+        host.upTo[1] = 1;
+        host.SendInputs(321); // fresh cumulative acknowledgement, no simulation frame elapsed
+        Require(host.late.size() == 36, "newly received stream waited for the duplicate retry timer");
+        host.SendInputs(322);
+        Require(host.late.size() == 36, "repeated input sent before the retry deadline");
+        host.current = 1;
+        host.SendInputs(323);
+        Require(host.late.size() == 39, "simulation frame advance waited for the retry deadline");
+        host.late.clear();
+    }
+
     static void FirstToConsensus() {
         const auto final = [](Netplay &match) {
             match.set.Load({5, 0, 5, 2, 0, 0, 0, 0, 1, 5000});
@@ -431,6 +775,7 @@ struct NetplayTest {
         host.setAgreed = NowMs() - 2001;
         Require(!host.Ready(5001) && host.SetFinished() && !host.failed && !host.lost && !host.left,
                 "agreed host set failed to finish normally");
+        Require(host.ended == "Left team wins the FT5 set (5-2).", "winning team was reported as a single player");
 
         Netplay client(Settings(false));
         client.links.resize(1);
@@ -447,6 +792,15 @@ struct NetplayTest {
         Writer bye(kBye);
         client.Take(client.links[0], bye.out.data(), bye.out.size());
         Require(client.SetFinished() && !client.lost && !client.failed, "host departure masked an agreed set result");
+
+        for (int people : {2, 3, 4}) {
+            Netplay right(Settings(false));
+            right.needed = people;
+            right.set.Load({5, 1, 2, 5, 0, 0, 0, 0, 1, 5000});
+            right.FinishSet();
+            const std::string expected = people == 2 ? "Player 2" : "Right team";
+            Require(right.ended == expected + " wins the FT5 set (2-5).", "right-hand winner was attributed to the wrong player");
+        }
 
         // Agreement belongs to this link's exact score and this Netplay session, not any later result.
         Netplay changed(Settings(false));
@@ -607,7 +961,14 @@ struct NetplayTest {
                  {"departure acknowledgment and retry", DepartureAcknowledgments},
                  {"departure transmission and failed-service retry", DepartureTransmission},
                  {"five mixed-machine rosters and start packets", Rosters},
+                 {"both three-human formats across all three machine layouts", AsymmetricRosters},
+                 {"alternate four-player teams, paired seats and spectator protocol", AlternateTeamOrder},
                  {"four input streams, retransmission, relay and bounded prediction", FourStreamControls},
+                 {"reordered timing samples, clock wrap and simulated delivery order", TimingSamples},
+                 {"four-peer clock correction across lag and recovery", FourPeerPacing},
+                 {"top name, streak and first-to layout bounds", TopHudNames},
+                 {"bounded stalled retries with immediate fresh controls", StalledRetries},
+                 {"SDL taps through network stalls, two local seats and stale-input expiry", WindowStallInputs},
                  {"all-machine first-to consensus and score mismatch", FirstToConsensus},
                  {"reliable mode events and four-human mode guard", ModeEvents},
                  {"four-stream confirmed spectators and read-only controls", SpectatorControls}}) {

@@ -49,7 +49,7 @@ jobs:
       - name: Cross Fever reset and save-state regression (no game data)
         run: make check-crossfever-reset
       - name: First-to scoring and confirmation regressions (no game data)
-        run: make check-first-to
+        run: make check-first-to check-movie
 
   # Whether anything but words changed (the README, docs/, a changelog): the builds are skipped when not
   changes:
@@ -136,11 +136,13 @@ jobs:
           CMAKE_C_COMPILER_LAUNCHER: ccache
           CMAKE_CXX_COMPILER_LAUNCHER: ccache
         run: tools/release/linux.sh
-      - name: Protocol reconnect and admission regressions (no game data)
+      - name: Protocol admission, reconnect and controller slots (no game data)
         env:
           PKG_CONFIG_PATH: ${{ github.workspace }}/build/deps/sdl-${{ matrix.system }}/lib/pkgconfig
           SDL_STATIC: 1
-        run: tools/check_netplay.sh
+        run: |
+          tools/check_netplay.sh
+          make check-gamepad-slots
       - name: Start the programs with no display
         run: |
           tar -xzf build/release/CPS2Recomp-${{ matrix.system }}.tar.gz -C "$RUNNER_TEMP"

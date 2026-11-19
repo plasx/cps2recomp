@@ -5,12 +5,29 @@
 - **Online: the in-game menu in a match**: Esc (or the gamepad's menu button) opens the in-game menu, small, over the
   running match (it goes on for both players; your fighter stands still while it is open), in place of the overlay.
   Its **Online match** page has the host's **Start Ball battle**, **Start Tag team battle** and **Back to Versus**, and
-  each player's own fighters; the first page has Mute, Resume and **Leave the match**.
+  each player's own fighters, local display and input settings, and MVC's host rules. The first page has Mute, Resume and **Leave the match**.
 - **Online names out of the way, and Cross Fever's gauge filling optional** (issue #363): the Online page's **Names
   shown → At the top** puts each side's names and win streak on one line along the top edge of the picture, clear of
   Marvel vs. Capcom's partner life bars; **Hide names** now hides the streaks too. Marvel vs. Capcom's **Cross Fever
-  gauges → Only by fighting** (Alternative modes page; online, the host's) stops the hyper combo gauges filling by
-  themselves.
+  gauges → Only by fighting** is the default. **Fill by themselves** restores Dreamcast passive gain. The host chooses for both teams.
+- **Marvel vs. Capcom** now offers three-human Tag team on either side. In Cross Fever the host can choose earned
+  meter, arcade Duo length, who can request a tag, the Dreamcast taunt chord and whether both teams reselect for a rematch. Starting a fresh board clears
+  both teams' previous starting order. [Controls and Dreamcast comparison](games/mvsc/CROSS_FEVER.md).
+- **Four-player team order** in MVC lets the host put P1/P2 on the left against P3/P4 in classic Tag team or Cross Fever. Dreamcast order (P1/P3 vs P2/P4) is the default.
+- **Marvel vs. Capcom Tag team** takes a reserve player's tag through the game's tag check. A teammate's buttons
+  can no longer complete the point player's quarter-circle and accidentally spend the team's meter.
+- **Controllers** keep their player numbers when another pad disconnects. A returning pad reclaims its former slot
+  when the system can identify it. MVC can pause a local fight on disconnect and identify which player's pad to reconnect.
+- **Online play** keeps late inputs while ignoring obsolete clock estimates. The match log shows the RTT of
+  each direct link and separates prediction waits from clock pacing. The in-game host can choose input delay and
+  an unlisted match. Player names, streak, ping and delay have local display switches. Protocol 11 adds three-person
+  admission. Protocol 13 requires matching player and spectator builds. The window retains short sampled taps during
+  bounded network waits by default. Each player can choose **Input during network waits → Current state** to sample only when a frame advances. Four-machine clock correction uses fresh peer progress, and a quiet link retries at
+  32 ms intervals. Recorded online input movies store changes and their final frame. [Hosting](docs/ONLINE.md).
+- **Online HUD** offers Soft, Faint and High contrast. The set score covers its own text and the team names sit
+  below MVC's helpers. Each player can hide names, streak, ping and delay independently in the match menu.
+  [Matched screenshots and test results](docs/ONLINE_TESTING.md#four-player-input-and-timing-checks-november-18-2026).
+
 - **Instant replay**: the in-game menu's **Game > Video** page's **Save replay** (Alt+Shift+F12) saves the last 30
   seconds just played as a video, with no recording started (**Replay length**: 30, 60 or 10 seconds, or off). The
   game keeps a state every second and every frame's controls, and plays them again into the video beside the game in a

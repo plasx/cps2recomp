@@ -35,7 +35,8 @@ Each player needs the game and its ROM set. The launcher's **Online** page (in t
   into your game as it is and press Start to challenge you. Esc asks whether to stop hosting.
 
 All players and viewers need the **same version and build** of CPS-2 Recomp; the launcher shows its version at the
-top of the sidebar. This branch uses protocol 10; an older build with a different protocol cannot join or watch.
+top of the sidebar. This branch uses protocol 13 for the current roster, tag and Cross Fever rules. All playing
+machines and viewers need the same build even when two downloads display the same release number.
 A match on another version is greyed in Online matches, and a code for one says so. Your ROM sets can be different
 regions of the same game (`mvscj` against `mvsc`, say): the match is played as the host's region. That is best
 effort: if the game reads a part of its program where the two sets still differ, the match stops as a desync does
@@ -54,6 +55,46 @@ cps2recomp-launcher --play mvsc -- --host --features tag_team=2,cross_fever --ne
 cps2recomp-launcher --play mvsc -- --join CODE --net-people 1   # run on each of the other three machines
 ```
 
+**Hosting by code without a public listing.** In the game settings, turn on **Online → Unlisted match** before hosting.
+Your nickname still appears to the players you invite. Share the code or host address with them. The code admits anyone
+who has it. Direct address hosting with `--net-service off` bypasses the service altogether.
+
+**Host input delay.** From the launcher, the game's Host match command or a direct `--host` launch, the same delay
+applies to everyone. An explicit `--net-delay N` wins, including zero. Next comes the game's **Online → Host input delay**
+choice (0–8 frames). **Use launcher setting** uses the launcher's saved **Input delay**, or two frames if none was saved.
+The launcher's Online card shows the global setting. A numeric choice for this game overrides it.
+The host chooses before the match. A larger value adds local response time and gives remote inputs more time to
+arrive before simulation. For a distant group, compare the same route and match with two delay settings and record
+the ping, correction count and waiting ticks. A single ping reading cannot identify jitter or the slow peer.
+
+**Input during network waits.** In the game's **Online** settings or the in-match menu, each player can choose
+how this machine samples its controllers. **Retain short taps** (default) keeps recent changes observed while
+the simulation is waiting. When the simulation advances, it takes one saved controller state per new frame, in
+order. A button can therefore register after you have let it go, even if the fighter's facing or ability to act
+has changed. **Current state** uses the controls held at the instant each new frame advances. A tap entirely
+inside the wait can disappear. Both choices apply the host's normal input delay. A saved replay uses the inputs
+that were actually submitted. During a playtest, record the local choice alongside the host delay.
+
+## Choosing the MVC team layout
+
+In the launcher's game settings open **Marvel vs. Capcom → Alternative modes**. The host chooses **Tag team** before
+hosting. Every machine with one player selects **People at this machine → 1**, including a solo owner of two fighters.
+
+| Humans | Tag team choice | Left team | Right team |
+|---|---|---|---|
+| 2 playing against one another | Off | P1 owns both | P2 owns both |
+| 2 on the same team | Co-op vs. computer | P1 and P2 | CPU |
+| 3 | 2 vs 1 | P1 and P3 | P2 owns both |
+| 3 | 1 vs 2 | P1 owns both | P2 and P3 |
+| 4 | 2 vs 2 · P1/P3 vs P2/P4 (default) | P1 and P3 | P2 and P4 |
+| 4 | 2 vs 2 · P1/P2 vs P3/P4 | P1 and P2 | P3 and P4 |
+
+In the Dreamcast order, P1 and P2 are the opposing arcade starters, and P3 and P4 join them. To put the first two people together, choose **Tag team → 2 vs 2**, then **Four-player team order → P1/P2 vs P3/P4** before hosting. P1 picks first on the left and P3 picks first on the right. P2 and P4 choose their respective partners. This works in classic Tag team and in Cross Fever. [Illustrated layouts](screenshots/mvsc/mvc-roster-routing.png).
+
+Player numbers above assume one controller per machine. With three humans on two machines, the two at one
+machine receive the split team, including when the solo owner hosts. Set **Cross Fever → On** for independent
+Duo controls on a split team. With fresh settings, **Cross Fever gauges → Only by fighting** leaves both meters unchanged while idle. To add Dreamcast passive gain, the host selects **Fill by themselves** before hosting. [What changes in a fight](../games/mvsc/CROSS_FEVER.md).
+
 ## Four players on four machines
 
 For Marvel vs. Capcom's Cross Fever, each person runs the game on their own machine and uses that machine's
@@ -61,14 +102,14 @@ For Marvel vs. Capcom's Cross Fever, each person runs the game on their own mach
 and switches **Cross Fever** on before hosting; the joining machines take those choices from the host.
 
 The host is P1. The other three join the same code or host address, becoming P2, P3 and P4 in arrival order.
-The match starts when all four are present. Teams are **P1 + P3 versus P2 + P4**. Each person chooses their assigned
+The match starts when all four are present. The host chooses the teams. Each person chooses their assigned
 fighter on the arcade selection screen and controls that fighter independently during a Duo Team Attack.
 
 ![Architecture diagram: four separate computers, each with one six-button controller. P1 hosts three bidirectional input links to P2, P3 and P4. Teams are P1/P3 versus P2/P4; all four computers run the full match.](diagrams/mvsc-four-machines.svg)
 
-*Input routing diagram. [Figure notes and design references](diagrams/README.md).*
+*Input routing diagram for the default Dreamcast team order. [Figure notes and design references](diagrams/README.md).*
 
-The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
+CPS2Recomp implements rollback in its own `port/netplay.cpp`. The arrows carry game inputs over UDP. Each joining machine sends its own inputs to the host, which forwards the
 other players' inputs. Every machine runs the game and rollback. The introduction service finds the host; it does
 not carry gameplay traffic. Code-based admission needs the updated Worker deployed; direct-address joining does
 not use that service. On separate networks, the host still needs to be reachable through hole punching, port
@@ -114,7 +155,7 @@ before that frame, player 1's first, and a side that has run past it on guessed 
 wrong guess. Its seed makes the mode's choices at random the same on both sides (battle::StartOnline). Everything the
 modes keep from frame to frame is in the save state the rollback puts back (the court's sources' `Description::state`,
 the games' live tag). Not yet: viewers (their playback stops when the host switches mode), ring out and the endless
-battle (they run more than one copy of the game), other games' stages, and switching modes during a four-person
+battle (they run more than one copy of the game), other games' stages, and switching modes during a three- or four-person
 match. The normal four-person Tag team/Cross Fever match is selected before hosting and keeps its independent
 controller owners.
 
@@ -130,8 +171,7 @@ A strip at the top shows the two sides around the score (`2 FT5 1`). A game coun
 not a draw, not a fight with the computer, and only once the games have the real controls for it (a guess that a
 rollback replaced never counts). When a side reaches five (or ten), the playing machines agree on the score, show
 the winner for two seconds and close, back to the launcher; host again there for a new set. A dropped connection ends the set
-unfinished, and coming back starts the score over. In a four-person match the score belongs to teams P1/P3 and
-P2/P4, not to each controller separately. Nothing is kept or ranked.
+unfinished, and coming back starts the score over. In a four-person match each side keeps one score for its two teammates under either team order. Nothing is kept or ranked.
 
 From a terminal, `--features online_set=1` is FT5 and `online_set=2` FT10, on the host:
 
@@ -182,9 +222,17 @@ build/mvsc/mvsc --rom rom/mvsc --join 127.0.0.1:7845 --net-service off   # (the 
 - **The games are checked against each other**: every second each machine sends a fingerprint of the game (the
   joining machines to the host, the host to each); if they ever differ, the match stops and says so (a desync, which
   should not happen).
-- **The ping** is said at the bottom of the screen all through a match ("PING 42 ms": to the farthest player, with
-  more than two machines), and the input delay too if you like ("DELAY 2"): each is a switch, **Ping** (on) and
-  **Input delay**, on the Online page under In a match (and on the Features page).
+- **Ping** at the bottom of the screen estimates the longest route to another player. A guest's estimate includes
+  its link to the host and the host's longest link to another guest. **Show direct link RTT** adds the measured
+  packet round trip for each connected machine, labelled by its players. Hosts see one reading per guest. Guests
+  see their host connection. The input delay can appear beside the ping ("DELAY 2"). Use **Online → Ping** and **Input delay**,
+  or open the online match menu with Esc to change those readouts while playing. **Hide names** hides the names and streaks together. **Hide online win streak** leaves the names visible. **Names shown → At the top** moves the labels above the life bars. In MVC the names sit below the helper count and the
+  connection readouts sit above the TIME and Hyper gauges.
+  **Online HUD opacity** is available under Online and in the match menu. **Soft** is the default, **Faint** shows
+  more of the stage, and **High contrast** emphasizes labels. The choice applies to point markers, names, streaks,
+  the set score and network readings on your screen. The score strip fits the displayed text.
+  Esc also shows every player the host's tag layout, whether Cross Fever is active and who controls each team's
+  fighters during Duo. In 2 vs 1 or 1 vs 2 the solo player controls both teammates on their side.
   "WAITING FOR THE OTHER PLAYER" (PLAYERS, with more machines) shows if a game goes quiet for a moment, and **PRESS
   START TO JOIN** until you have.
 - **Coming back after a drop**: if the other player's game closes or their connection drops, the host's game stays

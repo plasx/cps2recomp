@@ -43,7 +43,7 @@ check-widescreen: port
 else
 
 .PHONY: check audit example smoke check-common clean games collection collection-app android
-check: audit check-common check-first-to smoke
+check: audit check-common check-first-to check-movie smoke
 
 .PHONY: check-first-to
 check-first-to:
@@ -84,6 +84,19 @@ clean:
 endif
 
 .PHONY: check-netplay check-online-service check-crossfever-reset
+.PHONY: check-movie check-gamepad-slots
+check-movie:
+	@mkdir -p build/checks
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -Wno-unused-parameter -Imachine -Ivideo -Isound \
+		tools/check_movie.cpp port/movie.cpp -o build/checks/movie
+	@build/checks/movie build/checks/movie-check.txt
+
+check-gamepad-slots:
+	@mkdir -p build/checks
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror tools/check_gamepad_slots.cpp \
+		$(shell pkg-config $(if $(filter 1,$(SDL_STATIC)),--static) --cflags --libs sdl3) -o build/checks/gamepad-slots
+	@build/checks/gamepad-slots
+
 check-netplay:
 	@tools/check_netplay.sh
 
@@ -94,6 +107,6 @@ check-crossfever-reset:
 	@mkdir -p build/checks
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -std=c++20 -Wall -Wextra -Werror -Wno-unused-parameter \
 		-Iruntime -Ifight -Imachine -Ivideo -Isound -Igames/mvsc/src \
-		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp games/mvsc/src/tag.cpp \
+		games/mvsc/check_crossfever_reset.cpp games/mvsc/src/crossfever.cpp games/mvsc/src/tag.cpp fight/tag.cpp recomp-common/settings.cpp \
 		-o build/checks/crossfever-reset
 	@build/checks/crossfever-reset

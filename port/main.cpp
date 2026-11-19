@@ -61,6 +61,8 @@ static std::string SaidOfScene(const std::string &said) {
 namespace port {
 
 namespace {
+    // Persistent online labels keep brighter ink than their backplates on busy stages.
+    constexpr HudOpacity kOnlineHudOpacity[] = {{112, 232}, {64, 190}, {220, 255}};
     // The modes played online (battle::StartOnline), by number, and their pages' names
     constexpr const char *kOnlineModes[] = {"Versus", "Ball battle", "Tag team battle"};
     const Feature *FindFeature(const std::string &name) {
@@ -80,57 +82,17 @@ namespace {
     }
 } // namespace
 
-bool Movie::Load(const std::string &path) {
-    FILE *f = fopen(path.c_str(), "r");
-    if (!f) {
-        return false;
-    }
-    char line[256];
-    while (fgets(line, sizeof(line), f)) {
-        unsigned long long frame;
-        unsigned p[4] = {};
-        if (line[0] != '#' && sscanf(line, "%llu %x %x %x %x", &frame, &p[0], &p[1], &p[2], &p[3]) >= 3) {
-            changes[frame] = {static_cast<uint16_t>(p[0]), static_cast<uint16_t>(p[1]), static_cast<uint16_t>(p[2]), static_cast<uint16_t>(p[3])};
-        }
-    }
-    fclose(f);
-    return true;
-}
-
-bool Movie::Save(const std::string &path) const {
-    FILE *f = fopen(path.c_str(), "w");
-    if (!f) {
-        return false;
-    }
-    // (as many players as any line has a press for, and two at least: a two-player movie is as it always was)
-    int players = 2;
-    for (const auto &[frame, pads] : changes) {
-        for (int n = 2; n < static_cast<int>(pads.size()); n++) {
-            players = pads[n] ? std::max(players, n + 1) : players;
-        }
-    }
-    fprintf(f, "# cps2recomp input movie: frame player1 player2%s%s (pressed bits, hex)\n", players > 2 ? " player3" : "", players > 3 ? " player4" : "");
-    for (const auto &[frame, pads] : changes) {
-        fprintf(f, "%llu", static_cast<unsigned long long>(frame));
-        for (int n = 0; n < players; n++) {
-            fprintf(f, " %04x", pads[n]);
-        }
-        fprintf(f, "\n");
-    }
-    fclose(f);
-    return true;
-}
-
 namespace {
     port::GpuPicture *g_gpuPicture = nullptr; // (--video gpu-check)
 } // namespace
 
 namespace {
-    constexpr uint32_t kStateVersion = 12; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
+    constexpr uint32_t kStateVersion = 13; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
                                           // 8: widescreen's camera a frame ago; 9: a guest board's, runtime/guest.h;
                                           // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: live tag swaps (upstream),
                                           // or MVC starting order/Cross Fever clock (the four-player preview);
-                                          // 12: both branches combined; legacy MVC 11 parts are identified by their marks)
+                                          // 12: both branches combined; legacy MVC 11 parts are identified by their marks;
+                                          // 13: MVC partner-tag input edges)
 
     // (a path is UTF-8 text: by its wide name on Windows, where a folder with an accent is not in the system's code page)
     FILE *OpenFile(const std::string &path, const wchar_t *wideMode, const char *mode) {
@@ -620,9 +582,14 @@ void RegisterPortFeatures() {
     }
     // (online play's readout, each player's own: Port::Shown)
     TheGame().features.push_back({"online_ping", "Online", "Ping",
-                                  "During an online match, the time a packet takes to the other player and back (the farthest of "
-                                  "them, with more than two machines), at the bottom of the picture (\"PING 42 ms\").",
+                                  "The host sees its highest estimated ping to a guest. A guest sees the estimate to the farthest player through the host.",
                                   kFeatureEnhanced});
+    TheGame().features.push_back({"online_hud_opacity", "Online", "Online HUD opacity",
+                                  "Fade the names, point markers, streak, set score and network readings on your screen.",
+                                  0, {"Soft", "Faint", "High contrast"}});
+    TheGame().features.push_back({"online_link_rtt", "Online", "Show direct link RTT",
+                                  "Show the measured round-trip time to each directly connected machine, labelled by player number. Guests see their link to the host.",
+                                  0});
     // (the scene export: Port::SaveScene, SceneClip; scene.h)
     TheGame().pages.push_back({"Scene export", "Game",
                                "The picture taken apart: each of the board's layers by itself, as pictures with nothing where a "
@@ -682,7 +649,7 @@ void RegisterPortFeatures() {
                                   "Others can join you online while you play on as you like (modes, the menu, save states): "
                                   "the match's code is at the bottom of the screen to give them, and with your name from the "
                                   "launcher's Online page it's in the lobby too. When someone joins, the game starts over "
-                                  "for the match. This row again stops hosting.",
+                                  "for the match. Choose Unlisted match to share the code privately. This row again stops hosting.",
                                   nullptr});
     // (names: shown unless hidden, whatever the preset, so a switch that hides them)
     TheGame().features.push_back({"online_hide_names", "Online", "Hide names",
@@ -699,13 +666,25 @@ void RegisterPortFeatures() {
                                   "During an online match, how many frames each player's own controls are held back, at the bottom "
                                   "of the picture (\"DELAY 2\"): the host chooses it.",
                                   0});
-    // (a match of four, tag team's 2 vs 2 on the host: the people at each machine, netplay.h)
+    TheGame().features.push_back({"online_hide_streak", "Online", "Hide online win streak",
+                                  "Hide the win streak under the player names on this screen.", 0});
+    TheGame().features.push_back({"online_wait_input", "Online", "Input during network waits",
+                                  "Retain short taps plays recent changes in order when frames resume. Current state uses only what you hold when a frame advances. This choice applies to your controllers.",
+                                  0, {"Retain short taps", "Current state"}});
+    TheGame().features.push_back({"online_host_delay", "Online", "Host input delay",
+                                  "Frames to wait before applying each person's controls. A larger delay can reduce corrections "
+                                  "on long routes. Use launcher setting follows the global delay (default 2). An explicit --net-delay overrides both.",
+                                  0, {"Use launcher setting", "0 frames", "1 frame", "2 frames", "3 frames", "4 frames",
+                                      "5 frames", "6 frames", "7 frames", "8 frames"}});
+    TheGame().features.push_back({"online_unlisted", "Online", "Unlisted match",
+                                  "Keep matches you host out of the public lobby, even with a player name. Share the code or "
+                                  "host address with the people you want to join. Anyone who has the code can use it.", 0});
+    // How many physical controllers at this machine will play in the match.
     if (std::any_of(TheGame().features.begin(), TheGame().features.end(), [](const Feature &f) { return !strcmp(f.name, tag::kFeature); })) {
         TheGame().features.push_back({"online_people", "Online", "People at this machine",
-                                      "In an online match of four (Tag team at 2 vs 2 on the host): 1, each of the four on their own "
-                                      "machine, or 2, with this machine's player 1 and player 2 controls (two machines of two, or one "
-                                      "of two with two of one). The match begins when all four are there. In a match of two, one at "
-                                      "each machine.",
+                                      "Choose 1 for your own controller, or 2 for two people sharing this machine in a tag match. "
+                                      "The host sets the number of people on each team under Tag team. With three or four machines "
+                                      "and one controller each, everyone chooses 1.",
                                       0, {"1", "2"}});
     }
     // (display_picture: the GPU's picture, --video gpu, unless the CPU's is chosen, --video native; docs/NATIVE_VIDEO.md; read
@@ -1693,17 +1672,20 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     uint32_t *const px = turned ? upright.data() : pixels.data();
     const int W = turned ? +Video::kHeight : across, H = turned ? across : +Video::kHeight;
-    DrawHud(px, W, H, panels, turned ? +port::kHudText : boxParts | port::kHudText);
-    // A line at the bottom, in the middle (`up` lines higher)
-    auto status = [&](const char *text, int up) {
+    const bool liveOnline = net && !connecting;
+    const HudOpacity &onlineOpacity = kOnlineHudOpacity[liveOnline ? std::clamp(FeatureValue("online_hud_opacity"), 0, 2) : 0];
+    DrawHud(px, W, H, panels, turned ? +port::kHudText : boxParts | port::kHudText, liveOnline ? &onlineOpacity : nullptr);
+    const int bottomInset = net && !connecting ? TheGame().onlineBottomInset : 0;
+    // A line above the native gauges, in the middle (`up` pixels higher).
+    auto status = [&](const char *text, int up, HudOpacity opacity = {220, 255}) {
         if (!notices) {
             return; // (a video's picture: Port::VideoFrame)
         }
         const recomp::text::Canvas canvas{px, W, H};
         const float width = recomp::text::TextWidth(text, 1);
-        const float x = (W - width) / 2, y = static_cast<float>(H - 11 - up);
-        canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, 220});
-        canvas.Text(x, y, 1, 0, {255, 255, 255, 255}, text);
+        const float x = (W - width) / 2, y = static_cast<float>(H - 11 - bottomInset - up);
+        canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, opacity.panel});
+        canvas.Text(x, y, 1, 0, {255, 255, 255, opacity.ink}, text);
         if (panels) {
             panels->push_back({static_cast<int>(x) - 3, static_cast<int>(y) - 2, static_cast<int>(width) + 7, 12});
         }
@@ -1740,7 +1722,8 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     if (net && !connecting) {
         char text[64] = "";
-        if (net->Silent() > 1000) {
+        const bool waiting = net->Silent() > 1000;
+        if (waiting) {
             snprintf(text, sizeof(text), net->Machines() > 2 ? "WAITING FOR THE OTHER PLAYERS" : "WAITING FOR THE OTHER PLAYER");
         } else if (FeatureOn("online_ping") && FeatureOn("online_delay")) {
             snprintf(text, sizeof(text), "PING %d ms   DELAY %d", net->Ping(), net->Delay());
@@ -1750,7 +1733,21 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             snprintf(text, sizeof(text), "DELAY %d", net->Delay());
         }
         if (*text) {
-            status(text, said++ * 14);
+            status(text, said++ * 14, waiting ? HudOpacity{220, 255} : onlineOpacity);
+        }
+        if (notices && !net->Watching() && FeatureOn("online_link_rtt")) {
+            std::string routes = "RTT";
+            for (int m = 0; m < net->Machines(); ++m) {
+                if (m == net->Local() || (!net->Hosting() && m != 0)) continue;
+                routes += "   ";
+                for (int p = 0; p < net->People(m); ++p) {
+                    if (p) routes += "+";
+                    routes += "P" + std::to_string(net->Player(m, p) + 1);
+                }
+                const int rtt = net->DirectRtt(m);
+                routes += rtt < 0 ? " --" : " " + std::to_string(rtt) + " ms";
+            }
+            status(routes.c_str(), said++ * 14, onlineOpacity);
         }
         if (net->Watching()) status("SPECTATING", said++ * 14);
         if (!cameIn) {
@@ -1803,7 +1800,8 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         auto under = [&](int side, float y, const std::string &text, recomp::text::Color colour) {
             const float width = recomp::text::TextWidth(text.c_str(), 1);
             const float x = side == 0 ? 10.0f : W - 10.0f - width;
-            canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, 220});
+            canvas.Fill(x - 3, y - 2, width + 6, 12, {20, 22, 30, onlineOpacity.panel});
+            colour.a = onlineOpacity.ink;
             canvas.Text(x, y, 1, 0, colour, text.c_str());
             if (panels) {
                 panels->push_back({static_cast<int>(x) - 3, static_cast<int>(y) - 2, static_cast<int>(width) + 7, 12});
@@ -1812,11 +1810,13 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         // Each teammate keeps their player number; first-to scores remain team scores.
         const bool teams = tag::Chosen() != tag::kOff;
         const bool hidden = FeatureOn("online_hide_names");
+        int room[2] = {W / 2, W - W / 2};
         if (net->Set().Target()) {
             // Keep the score centred even when the players' names have different lengths.
             constexpr float size = 1;
             // Whole font dots stay sharp; compact padding keeps the strip clear of the life bars.
             auto smallText = [&](float x, const std::string &text, recomp::text::Color colour) {
+                colour.a = onlineOpacity.ink;
                 canvas.Text(std::floor(x), 2, size, 0, colour, text.c_str());
             };
             const std::string left = std::to_string(net->Set().Score(0));
@@ -1825,31 +1825,42 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             const float leftWidth = recomp::text::TextWidth(left.c_str(), size);
             const float formatWidth = recomp::text::TextWidth(format.c_str(), size);
             const float rightWidth = recomp::text::TextWidth(right.c_str(), size);
-            const float centre = (across - formatWidth) / 2.0f;
+            const float centre = (W - formatWidth) / 2.0f;
             const float leftAt = centre - 6 - leftWidth;
             const float rightAt = centre + formatWidth + 6;
-            canvas.Fill(0, 0, across, 11, {20, 22, 30, 220});
+            float stripLeft = leftAt, stripRight = rightAt + rightWidth;
+            std::string names[2];
+            float nameX[2] = {};
+            if (!teams && !hidden) {
+                for (int side = 0; side < 2; ++side) {
+                    names[side] = net->Name(side);
+                    if (names[side].empty()) names[side] = "Player " + std::to_string(side + 1);
+                    const float space = side == 0 ? leftAt - 12 : W - rightAt - rightWidth - 12;
+                    names[side].resize(recomp::text::Bytes(names[side].data(), names[side].size(),
+                            static_cast<size_t>(std::max(0.0f, space) / recomp::text::kCharWidth)));
+                    const float width = recomp::text::TextWidth(names[side].c_str(), size);
+                    nameX[side] = side == 0 ? leftAt - 9 - width : rightAt + rightWidth + 9;
+                    stripLeft = std::min(stripLeft, nameX[side]);
+                    stripRight = std::max(stripRight, nameX[side] + width);
+                }
+            }
+            const int x0 = std::max(0, static_cast<int>(std::floor(stripLeft)) - 3);
+            const int x1 = std::min(W, static_cast<int>(std::ceil(stripRight)) + 3);
+            room[0] = x0;
+            room[1] = W - x1;
+            canvas.Fill(x0, 0, x1 - x0, 11, {20, 22, 30, onlineOpacity.panel});
             smallText(leftAt, left, {0, 220, 220, 255});
             smallText(centre, format, {255, 210, 80, 255});
             smallText(rightAt, right, {0, 220, 220, 255});
-            if (!teams && !hidden) {
-                for (int side = 0; side < 2; ++side) {
-                    std::string name = net->Name(side);
-                    if (name.empty()) {
-                        name = "Player " + std::to_string(side + 1);
-                    }
-                    const float width = recomp::text::TextWidth(name.c_str(), size);
-                    const float x = side == 0 ? leftAt - 9 - width : rightAt + rightWidth + 9;
-                    smallText(x, name, {255, 255, 255, 255});
-                }
+            for (int side = 0; side < 2; ++side) {
+                if (!names[side].empty()) smallText(nameX[side], names[side], {255, 255, 255, 255});
             }
-            if (panels) {
-                panels->push_back({0, 0, across, 11});
-            }
+            if (panels) panels->push_back({x0, 0, x1 - x0, 11});
         }
         const bool atTop = FeatureValue("online_names_place") == 1;
         for (int side = 0; side < 2 && (!net->Set().Target() || teams) && !hidden; side++) {
-            float y = 38.0f;
+            float y = static_cast<float>(TheGame().onlineNamesY);
+            const bool showStreak = streak[side] >= 2 && !FeatureOn("online_hide_streak");
             std::vector<std::pair<std::string, bool>> lines; // (each line, and whether it is drawn bright)
             bool named = false;
             const int point = tag::OnPoint(side);
@@ -1868,12 +1879,15 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             if (!named) {
                 lines.clear();
             }
-            if (streak[side] >= 2) {
+            if (showStreak) {
                 lines.push_back({"STREAK " + std::to_string(streak[side]), true});
             }
             if (atTop) {
                 // One line a side along the top edge (in the first-to strip when there is one), each part in its colour
-                const float gap = recomp::text::TextWidth("  ", 1);
+                const size_t originalSize = lines.size();
+                const float gap = static_cast<float>(FitHudNames(lines, showStreak ? streak[side] : 0, room[side] - 14));
+                const bool streakBelow = lines.size() < originalSize;
+                if (streakBelow) under(side, 14, "W" + std::to_string(streak[side]), {255, 210, 80, 255});
                 float width = 0;
                 for (size_t n = 0; n < lines.size(); n++) {
                     width += (n ? gap : 0) + recomp::text::TextWidth(lines[n].first.c_str(), 1);
@@ -1883,22 +1897,23 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
                 }
                 float x = side == 0 ? 10.0f : W - 10.0f - width;
                 const float top = 2.0f;
-                canvas.Fill(x - 3, top - 2, width + 6, 12, {20, 22, 30, 220});
+                canvas.Fill(x - 3, top - 2, width + 6, 12, {20, 22, 30, onlineOpacity.panel});
                 if (panels) {
                     panels->push_back({static_cast<int>(x) - 3, static_cast<int>(top) - 2, static_cast<int>(width) + 7, 12});
                 }
                 for (size_t n = 0; n < lines.size(); n++) {
-                    const bool isStreak = streak[side] >= 2 && n + 1 == lines.size();
-                    const recomp::text::Color colour = isStreak ? recomp::text::Color{255, 210, 80, 255}
+                    const bool isStreak = showStreak && !streakBelow && n + 1 == lines.size();
+                    recomp::text::Color colour = isStreak ? recomp::text::Color{255, 210, 80, 255}
                                                        : lines[n].second ? recomp::text::Color{255, 255, 255, 255}
                                                                          : recomp::text::Color{150, 150, 160, 255};
+                    colour.a = onlineOpacity.ink;
                     canvas.Text(x, top, 1, 0, colour, lines[n].first.c_str());
                     x += recomp::text::TextWidth(lines[n].first.c_str(), 1) + gap;
                 }
                 continue;
             }
             for (size_t n = 0; n < lines.size(); n++) {
-                const bool isStreak = streak[side] >= 2 && n + 1 == lines.size();
+                const bool isStreak = showStreak && n + 1 == lines.size();
                 under(side, y, lines[n].first, isStreak ? recomp::text::Color{255, 210, 80, 255}
                                                : lines[n].second ? recomp::text::Color{255, 255, 255, 255}
                                                                  : recomp::text::Color{150, 150, 160, 255});
@@ -1907,6 +1922,7 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
         }
         // The chat: its lines at the left, above the super gauges, the newest lowest, and the line being typed under them
         float y = H - 44.0f;
+        if (bottomInset) y = std::min(y, static_cast<float>(H - 11 - bottomInset - said * 14));
         auto line = [&](const std::string &text, recomp::text::Color colour) {
             const float width = recomp::text::TextWidth(text.c_str(), 1);
             canvas.Fill(7, y - 2, width + 6, 12, {20, 22, 30, 200});
@@ -3019,7 +3035,11 @@ void Port::Streaks() {
         streak[winner]++;
         streak[1 - winner] = 0;
         roundsWon[0] = roundsWon[1] = 0;
-        fprintf(stderr, "online: player %d won the match (%d in a row)\n", winner + 1, streak[winner]);
+        if (net->Players() > 2) {
+            fprintf(stderr, "online: %s team won the match (%d in a row)\n", winner ? "right" : "left", streak[winner]);
+        } else {
+            fprintf(stderr, "online: player %d won the match (%d in a row)\n", winner + 1, streak[winner]);
+        }
     }
 }
 
@@ -3084,14 +3104,24 @@ std::filesystem::path LauncherFolder() {
 }
 
 namespace {
-    std::string LauncherName() {
-        const std::filesystem::path folder = LauncherFolder();
-        if (folder.empty()) {
-            return "";
+    void ApplyHostSettings(Netplay::Settings &settings, const Options &options, bool fromMenu) {
+        const int chosen = FeatureSetting("online_host_delay");
+        int global = options.launcherNetDelay;
+        if (fromMenu || (global < 0 && chosen == 0 && options.netDelayOverride < 0)) {
+            const std::filesystem::path folder = LauncherFolder();
+            if (!folder.empty()) {
+                recomp::Ini prefs(folder / "launcher.ini");
+                prefs.load();
+                if (fromMenu) settings.name = prefs.get("online", "name");
+                const std::string saved = prefs.get("online", "delay");
+                if (global < 0 && saved.size() == 1 && saved[0] >= '0' && saved[0] <= '8') global = saved[0] - '0';
+            }
         }
-        recomp::Ini prefs(folder / "launcher.ini");
-        prefs.load();
-        return prefs.get("online", "name");
+        if (fromMenu) settings.listed = !settings.name.empty();
+        settings.delay = global >= 0 ? global : Netplay::kDefaultDelay;
+        if (chosen > 0) settings.delay = chosen - 1;
+        if (options.netDelayOverride >= 0) settings.delay = options.netDelayOverride;
+        if (FeatureOn("online_unlisted")) settings.listed = false;
     }
 }
 
@@ -3109,8 +3139,7 @@ void Port::HostFromMenu() {
     settings.solo = true;
     settings.arcade = false;
     settings.port = Netplay::kDefaultPort;
-    settings.name = LauncherName();
-    settings.listed = !settings.name.empty();
+    ApplyHostSettings(settings, opt, true);
     settings.renewCode.clear();
     settings.renewSecret.clear();
     waitingHost = std::make_unique<Netplay>(settings);
@@ -3223,7 +3252,7 @@ void Port::LeaveOnline() {
 }
 
 
-void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
+void Port::OnlineEvent(int player, const std::string &text, uint64_t eventFrame) {
     for (size_t at = 0; at < text.size();) {
         const size_t comma = std::min(text.find(',', at), text.size());
         const std::string item = text.substr(at, comma - at);
@@ -3239,7 +3268,7 @@ void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
             const uint32_t seed = colon == std::string::npos ? 1 : static_cast<uint32_t>(strtoul(item.c_str() + colon + 1, nullptr, 10));
             // (each row as the events before this frame left it: a rollback back to here may have run later ones already)
             for (const auto &[row, log] : onlinePickLog) {
-                const auto it = log.upper_bound(at);
+                const auto it = log.upper_bound(eventFrame);
                 SetFeatureForNow(row.c_str(), it == log.begin() ? onlinePickBase[row] : std::prev(it)->second);
             }
             battle::StartOnline(*machine, mode, seed);
@@ -3250,7 +3279,7 @@ void Port::OnlineEvent(int player, const std::string &text, uint64_t at) {
                 if (!onlinePickBase.count(name)) {
                     onlinePickBase[name] = FeatureValue(feature->name);
                 }
-                onlinePickLog[name][at] = value;
+                onlinePickLog[name][eventFrame] = value;
                 SetFeatureForNow(feature->name, value);
             }
         }
@@ -3302,17 +3331,47 @@ void Port::OpenOnlineMenu() {
             }
         }
     }
-    online.value = [this](size_t row) {
-        if (row >= onlineRows.size()) {
-            return 0;
+    const size_t localBegin = onlineRows.size();
+    for (const char *key : {"online_wait_input", "online_hud_opacity", "online_ping", "online_link_rtt",
+                            "online_delay", "online_hide_names", "online_hide_streak", "online_names_place"}) {
+        if (const Feature *feature = FindFeature(key)) pick(key, feature->title, feature->description);
+    }
+    const size_t rulesBegin = onlineRows.size();
+    for (const char *key : {tag::kFeature, tag::kTeamOrder, "cross_fever", "cross_fever_auto_gauge"}) {
+        if (const Feature *feature = FindFeature(key)) {
+            const int value = FeatureValue(key);
+            const char *choice = feature->choices.empty() ? (value ? "On" : "Off") : feature->choices[std::clamp(value, 0, static_cast<int>(feature->choices.size()) - 1)];
+            onlineRows.push_back(key);
+            online.features.push_back({Menu::kOnlinePage, feature->title, "The host selects this rule before the match.", {choice}});
         }
+    }
+    if (FindFeature("cross_fever")) {
+        const char *duo = "Duo: point controls both fighters";
+        if (FeatureOn("cross_fever")) {
+            switch (tag::Chosen()) {
+            case tag::kCoop: duo = "Duo: independent on the co-op team"; break;
+            case tag::kVersus: duo = "Duo: independent on both teams"; break;
+            case tag::kTwoVsOne: duo = "Duo: independent left / shared right"; break;
+            case tag::kOneVsTwo: duo = "Duo: shared left / independent right"; break;
+            default: break;
+            }
+        }
+        online.features.push_back({Menu::kOnlinePage, "Duo controls", "The host selects this rule before the match.", {duo}});
+    }
+    online.value = [this, rulesBegin](size_t row) {
+        if (row >= rulesBegin) return 0;
         const auto it = onlinePicks.find(onlineRows[row]);
         return it != onlinePicks.end() ? it->second : FeatureValue(onlineRows[row].c_str());
     };
-    online.setValue = [this](size_t row, int value) {
-        if (row < onlineRows.size() && net) {
-            onlinePicks[onlineRows[row]] = value;
-            net->Command(onlineRows[row] + "=" + std::to_string(value));
+    online.setValue = [this, localBegin, rulesBegin](size_t row, int value) {
+        if (!net || row >= rulesBegin) return;
+        const std::string &name = onlineRows[row];
+        if (row < localBegin) {
+            onlinePicks[name] = value;
+            net->Command(name + "=" + std::to_string(value));
+        } else {
+            SetFeatureValue(name.c_str(), value);
+            if (!ownFeatures.empty()) ownFeatures[name] = value;
         }
     };
     online.leave = net->Hosting() && hostedFromMenu ? "Leave the match (play alone)" : "Leave the match";
@@ -3378,6 +3437,7 @@ bool Port::StartOnline(std::string &error) {
         error = "online play: not with --rollback-test, --movie or --state-load";
         return false;
     }
+    if (opt.net.hosting) ApplyHostSettings(opt.net, opt, false);
     net = std::make_unique<Netplay>(opt.net);
     zoom.Forbid(); // (both players see the whole picture, as the board shows it)
     if (opt.headless && !net->Arcade()) {
@@ -3437,6 +3497,7 @@ void Port::ArcadeFrame() {
 }
 
 void Port::Matched() {
+    if (!opt.movieRecord.empty()) recMovie.BeginRecording();
     connecting = false;
     onlinePickLog.clear();
     onlinePickBase.clear();
@@ -4003,7 +4064,7 @@ void Usage() {
             "  --net-invite TO:FROM   (hosting) the player TO in the launcher's waiting room invited, from FROM (ids;\n"
             "                         --net-name the inviter's name)\n"
             "  --net-invite-name NAME ... TO's name, as the wait says it\n"
-            "  --net-delay N          (hosting) frames each player's controls are held back, 2 unless said (0-8)\n"
+            "  --net-delay N          (hosting) override the game and launcher input delay for everyone (0-8 frames)\n"
             "  --net-fake MS[:JIT[:LOSS]]  (tests) each packet sent MS ms late, give or take JIT, LOSS in 100 lost\n"
             "  --test-switch FROM:TO  the operator's test switch held from frame FROM to TO\n"
             "  --music-test FRAMES    each piece of the game's music in turn on the board, FRAMES each (with the test\n"
@@ -4182,8 +4243,14 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.net.inviteName = next();
         } else if (a == "--net-service") {
             o.net.service = next();
-        } else if (a == "--net-delay") {
-            o.net.delay = atoi(next());
+        } else if (a == "--net-delay" || a == "--launcher-net-delay") {
+            const std::string value = next();
+            if (value.size() != 1 || value[0] < '0' || value[0] > '8') {
+                fprintf(stderr, "%s needs a frame count from 0 to 8.\n", a.c_str());
+                return false;
+            }
+            if (a == "--net-delay") o.netDelayOverride = value[0] - '0';
+            else o.launcherNetDelay = value[0] - '0';
         } else if (a == "--net-people") {
             o.net.people = std::clamp(atoi(next()), 1, port::Netplay::kMostSeats);
         } else if (a == "--net-fake") {

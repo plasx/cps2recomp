@@ -1,7 +1,7 @@
 # The online service
 
-Online play (`port/netplay.h`) is copies of the game sending each other their players' controls directly: two, or up to
-four in a match of four (the tag-team games' 2 vs 2), whose joining machines each reach the host. This service only
+Online play (`port/netplay.h`) is copies of the game sending each other their players' controls directly: two, three or four
+human players, with each joining machine connected to the host. Three humans can play 2 vs 1 or 1 vs 2. This service only
 introduces them: a host asks it for a code; each other player gives the code, and the host and they are told where the
 other can be reached. Nothing of a match goes through it. It is a [Cloudflare Worker](https://developers.cloudflare.com/workers/)
 with a [Durable Object](https://developers.cloudflare.com/durable-objects/) for each match (`src/index.js`), within
@@ -12,11 +12,11 @@ How the two meet:
 1. Each game asks a public STUN server (Cloudflare's, or Google's) what address and port its UDP socket is seen from
    on the internet: the router's, for a machine behind one.
 2. The host sends that and its addresses on its own networks to `POST /v1/host`, with the players its match is for
-   (`players`: 2, or 4) and how many of them play at its machine (`here`: 1, or 2), and is given a code (`K7Q-M2X`,
+   (`players`: 2, 3 or 4) and how many of them play at its machine (`here`: 1, or 2), and is given a code (`K7Q-M2X`,
    six letters and digits; no 0, O, 1, I or L). It asks `GET /v1/host/CODE` every 2 seconds, every 5 after two
    minutes and every 10 after ten (a joining player waits 30 seconds to hear from it), until everyone has come.
 3. Each other player sends the code, its own addresses and the people at its machine (`people`: 1, or 2 in a match of
-   four) to `POST /v1/join/CODE`, and is given the host's addresses and a number of its own (`ticket`), which it says
+   three or four) to `POST /v1/join/CODE`, and is given the host's addresses and a number of its own (`ticket`), which it says
    to the host in its hello. The host's next question gives it each who joined (`joiners`: "TICKET ADDRESS
    ADDRESS..."), and says back (`gone=TICKET,...`) those who went before the match began, or never came in 30
    seconds: their places are free again. A code lasts 30 minutes (a host still waiting then has the same code again),
@@ -24,7 +24,7 @@ How the two meet:
    build or wire protocol of the game, is turned away. (A host without `players` has a match of two, and is told the
    one who joined as `addresses`, as it always was.)
 4. Each side sends to every address of the other's. The host's packets open its router to the other's, whose hellos
-   then come through (UDP hole punching); the first address that answers is the match's. In a match of four the host
+   then come through (UDP hole punching); the first address that answers is the match's. In a match with several joining machines the host
    does so for each who joins, and they never need to reach each other: the host passes on what each sends.
 
 A host that asks for it (`--net-list`, with `--net-name`) is also in the **lobby**: a Durable Object keeping every
@@ -60,7 +60,7 @@ The spectator protocol adds `POST /v1/watch/CODE`. Only a live match whose host 
 The viewer supplies its game, build, version, protocol and addresses and receives the host's addresses and
 an admission token. Authenticated host polls with `active=1` keep the running lobby entry alive and deliver
 viewer addresses and tokens for UDP introduction. Ordinary joins reserve player seats (one or two people per joining
-machine in a four-player match); spectators have a separate eight-viewer limit and never consume those seats.
+machine in a three- or four-player match); spectators have a separate eight-viewer limit and never consume those seats.
 An active match rejects additional player joins even if some players connected directly without service tickets.
 The host can send `gone` removals and `active=1` in the same poll without losing either update.
 The lobby says `watching: true` for a running match and never publishes addresses or tokens.
@@ -95,14 +95,16 @@ node --test online/test/*.test.js
 
 Or run `npm test` from `online`. No dependencies, game files, account or network are needed. The tests import the
 actual Worker and Durable Object handlers, using in-memory storage and bindings. They cover two-player compatibility,
-every ordered one-/two-person placement in a match of four, capacity errors, ticket removal and retries after a lost
+every ordered one-/two-person placement in matches of three and four, capacity errors, ticket removal and retries after a lost
 request or answer, wrong credentials/build/game/protocol, lobby visibility, rehosting and expiry. Retrying a removal
 must not evict a replacement that received a newer ticket. Live rehosting preserves the ticket counter so a delayed
 old removal cannot delete a new arrival; a record recreated after expiry has no such retained history and would
 need a separate generation token to distinguish arbitrarily delayed old requests. The same suite exercises spectator
 admission to full and direct-address four-player matches, token retries and limits, privacy, host/viewer expiry, rehosting, and combined
-active/removal polling. A known mismatched protocol is rejected before reserving a seat; missing protocol fields
-retain the legacy admission behavior. UDP handshakes still enforce the actual protocol.
+active/removal polling. A known mismatched protocol is rejected before reserving a seat; three-person rooms require protocol 11 or later from the host and a matching protocol from each guest.
+When the host or guest uses protocol 12 or later, the Worker requires the same explicit protocol from the other end for every room size. Spectators also require an exact match. The current game and launcher use protocol 13. It includes MVC’s revised tag and taunt routing. Match rules carry the host’s four-player team order in the normal welcome.
+
+Older two- and four-player rooms retain their missing-protocol behavior when both ends predate protocol 12. UDP handshakes still enforce the actual protocol.
 
 These are serial service tests. They do not establish Cloudflare scheduling/storage behavior, UDP hole punching,
 or a match between separate networks. The game's retry queue and online rollback need their own checks too.

@@ -153,6 +153,7 @@ void LoadFeatures(const std::string &settingsPath, const std::string &list) {
     // (the rules the launcher follows too: recomp-common/settings.h)
     recomp::Ini settings(settingsPath);
     settings.load();
+    if (TheGame().migrateSettings) TheGame().migrateSettings(settings);
     const std::vector<int> values = recomp::FeatureValues(settings, FeatureList());
     for (size_t i = 0; i < values.size(); i++) {
         g_on[TheGame().features[i].name] = values[i];
@@ -165,11 +166,10 @@ void LoadFeatures(const std::string &settingsPath, const std::string &list) {
             const bool off = name[0] == '-';
             // (NAME, -NAME, or NAME=N for one of a feature's choices)
             const size_t eq = name.find('=');
-            if (eq != std::string::npos) {
-                g_on[name.substr(0, eq)] = atoi(name.c_str() + eq + 1);
-            } else {
-                g_on[off ? name.substr(1) : name] = off ? 0 : 1;
-            }
+            std::string key = eq == std::string::npos ? name.substr(off ? 1 : 0) : name.substr(0, eq);
+            int value = eq == std::string::npos ? !off : atoi(name.c_str() + eq + 1);
+            if (TheGame().migrateOption) TheGame().migrateOption(key, value);
+            g_on[key] = value;
         }
     }
 }
