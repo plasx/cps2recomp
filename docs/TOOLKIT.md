@@ -237,8 +237,8 @@ bytes, then odd: MAME's `ROM_LOAD16_BYTE`), says how many pairs: `board = cps1 p
 memories where the 68000 sees them (F18000, F1E000); the video (`video/video.*`) takes the object list from video RAM
 and draws the objects as one of the four layers, where the layer control puts them, with the scroll screen just below
 them keeping its high pens (each tile's group picks one of the four priority masks) in front of them; the ROM set has
-no program cipher, no graphics shuffle and its samples as bytes. The board timing (`arcade_timing`) is the CPS-2's and
-stays off.
+no program cipher, no graphics shuffle and its samples as bytes. The board timing has the CPS-1's own rules (its PAL's
+waits, the object table's DMA: [TIMING.md](TIMING.md)).
 
 The sound CPU of these boards deciphers its program as it reads it (Kabuki: opcodes one way, other reads another,
 both by address), and no ROM set carries the key. `machine/kabuki.*` works it out from the program itself when the

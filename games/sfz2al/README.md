@@ -59,8 +59,9 @@ What the program expects of the board is code written for this project, not an e
   Board page, each as the board is set unless you choose; or the game's own test menu from the in-game menu. A new
   board's difficulty is Expert.
 - **Straight to the title** (Game page): at a start or a reset, everything before the title runs unseen.
-- **Arcade timing** (Game page, off unless chosen): the processor run as on the arcade board, so the game slows
-  down where and as much as the board does. [More →](../../docs/TIMING.md)
+- **The board's speed**: the processor runs as on the arcade board, so the game plays at the board's speed and
+  slows down where and as much as the board does; **Slowdown → None** (Game page) gives it every clock instead.
+  [More →](../../docs/TIMING.md)
 - **A custom soundtrack**: your own music in place of the board's, with the board's sound effects and voices: a
   folder of music plays as a playlist (in order or shuffled), or files named for the game's songs replace those
   songs (the `songs.txt` the game writes names its 59 pieces: the board's sound program is Alpha 2's).

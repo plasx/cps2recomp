@@ -411,8 +411,9 @@ bool RunHook(M68K &c, uint32_t address) {
     if (g_noRewrites) {
         return false;
     }
-    // (the board's timing: the game's own code, with its own time, unless the game's sources need their rewrites)
-    if (c.busWait && !(TheGame().rewritesNeeded && TheGame().rewritesNeeded())) {
+    // (the board's timing: the game's own code, with its own time, unless the game's sources need their rewrites, or
+    // the run is there to check them, --check-rewrites)
+    if (c.busWait && !g_checkRewrites && !(TheGame().rewritesNeeded && TheGame().rewritesNeeded())) {
         return false;
     }
     {

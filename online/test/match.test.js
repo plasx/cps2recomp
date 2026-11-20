@@ -237,11 +237,12 @@ test("a two-person joiner cannot consume the last single seat or a ticket", asyn
 });
 
 for (const players of [2, 3, 4]) {
-  for (const agreed of [12, 13]) {
+  for (const agreed of [12, 13, 14]) {
+    const mismatches = [undefined, 11, 12, 13, 14].filter(protocol => protocol !== agreed);
     test(`protocol ${agreed} matches exactly for ${players} players and spectators`, async (t) => {
       const f = fixture(t);
       const host = await start(f, { players, protocol: agreed, spectators: true });
-      for (const protocol of [undefined, 11, agreed === 13 ? 12 : 13]) {
+      for (const protocol of mismatches) {
         const refused = await f.join(host.code, 7001, { protocol });
         assert.equal(refused.status, 409);
         assert.match(refused.body.error, /protocol/i);
@@ -249,7 +250,7 @@ for (const players of [2, 3, 4]) {
       }
       assert.equal((await f.join(host.code, 7002, { protocol: agreed })).body.ticket, 1);
       await f.poll(host, "", true);
-      for (const protocol of [undefined, 11, agreed === 13 ? 12 : 13]) {
+      for (const protocol of mismatches) {
         assert.equal((await f.watch(host.code, { protocol })).status, 409);
       }
       assert.equal((await f.watch(host.code, { protocol: agreed })).status, 200);

@@ -186,7 +186,7 @@ namespace {
 
     void StateVersions() {
         // The preview and upstream used 11 for different additions. Only the preview contains MVC's TAOR/CFVS.
-        for (unsigned version : {11u, 12u, 13u}) {
+        for (unsigned version : {11u, 12u, 13u, 14u}) {
             ClearOldState();
             MakeRecords();
             Credits(3);
@@ -204,7 +204,7 @@ namespace {
             TagState(load);
             CrossFeverState(load);
             load.Mark(0x44535447);
-            Require(load.Ok() && TagPick(mvsc::kPlayer1) == 1 && TagPick(mvsc::kPlayer1 + mvsc::kPlayerSize) == 0,
+            Require(load.Ok() && load.AtEnd() && TagPick(mvsc::kPlayer1) == 1 && TagPick(mvsc::kPlayer1 + mvsc::kPlayerSize) == 0,
                     "marked MVC state lost controller ownership");
             Require(!Step() && !Step() && !Step() && Step(), "marked MVC state lost its gauge phase");
         }
@@ -494,6 +494,30 @@ namespace {
             CrossFeverState(oldLoad);
             sample();
             Require(oldLoad.Ok() && !requested(side), "legacy one-frame edge became a held request");
+            // Upstream v13 kept the gauge only. A request pending in the running game must be cleared,
+            // even if the physical chord stays down across loading.
+            std::vector<uint8_t> boardTiming;
+            Archive writeBoardTiming(boardTiming, true);
+            writeBoardTiming.Mark(0x43465653);
+            uint8_t gauge = 3;
+            writeBoardTiming.Pod(gauge);
+            writeBoardTiming.Mark(0x44535447);
+            pulse(person, chord);
+            Archive loadBoardTiming(boardTiming, false);
+            loadBoardTiming.version = 13;
+            loadBoardTiming.v13BoardDma = true;
+            CrossFeverState(loadBoardTiming);
+            loadBoardTiming.Mark(0x44535447);
+            sample();
+            Require(loadBoardTiming.Ok() && loadBoardTiming.AtEnd() && !requested(side),
+                    "upstream v13 consumed the next section or kept a held bench request");
+            pulse(person, chord);
+            Require(requested(side), "upstream v13 suppressed a new press after release");
+            Archive truncated(boardTiming, false);
+            truncated.version = 14;
+            CrossFeverState(truncated);
+            truncated.Mark(0x44535447);
+            Require(!truncated.Ok(), "v14 accepted the shorter upstream v13 Cross Fever part");
             pulse(person, chord);
             Boot();
             sample();

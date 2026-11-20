@@ -13,7 +13,7 @@ meter, input display, combo readout, a dummy that records, replays and guards, a
 **alternative modes** (attract mode, the stage and model viewers, survival, endless battle, ring out), **widescreen**,
 **custom colours** with a colour editor, the **hidden characters** with no code (Dr. Doom and Thanos), and the features
 every game shares: free play, straight to the title, the board's operator settings, cheats, save states, run-ahead,
-arcade timing, a custom soundtrack.
+the board's speed, a custom soundtrack.
 
 > **Beta.** The game plays from start to ending and its code is checked instruction by instruction, but it has
 > been played on few machines and controllers yet. Expect rough edges, and please
@@ -71,8 +71,9 @@ is checked against an interpreter of the same program ([how it was made](PROGRES
 - Cheats: no damage (each player), one-hit knockouts, infinite time.
 - **Hidden characters** (Game page): Dr. Doom and Thanos with no code. Hold Start as you choose any character, and
   press a punch for Dr. Doom or a kick for Thanos.
-- **Arcade timing** (Game page, off unless chosen): the processor run as on the arcade board, so the game slows
-  down where and as much as the board does. [More →](../../docs/TIMING.md)
+- **The board's speed**: the processor runs as on the arcade board, so the game plays at the board's speed and
+  slows down where and as much as the board does; **Slowdown → None** (Game page) gives it every clock instead.
+  [More →](../../docs/TIMING.md)
 - **Run-ahead** (Game page): what you press seen a frame or two sooner than on the board, with the game running
   exactly as without it.
 - **A custom soundtrack**: your own music in place of the board's, with the board's sound effects and voices: a

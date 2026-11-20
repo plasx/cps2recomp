@@ -101,8 +101,9 @@ network (`--hash-no-picture --hash-no-sound`): the hashes must be the match's. I
 
 ## The board's timing
 
-The arcade timing (`--features arcade_timing`) is checked like the rest: `make check-blocks ARGS="--features
-arcade_timing"` compares translated code and the interpreter with the board's waits counted. How it was checked
+The board's timing (the default; `--features slowdown=1` turns it off) is checked like the rest: `make check-blocks`
+compares translated code and the interpreter with the board's waits counted, and `--check-rewrites` runs the
+rewrites with it on (where a plain run would take the game's own code in their place). How it was checked
 against the board itself (jtcps2, simulated) is in [TIMING.md](TIMING.md).
 
 ## Other aids

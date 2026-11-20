@@ -364,8 +364,9 @@ void CrossFeverInputs(const uint16_t *players) {
 }
 
 void CrossFeverState(Archive &ar) {
+    const bool hasTagEdges = ar.version == 0 || ar.version >= 14 || (ar.version == 13 && !ar.v13BoardDma);
     // Ignore held inputs until release when loading a state predating bench-tag edges.
-    if (!ar.Saving() && ar.version != 0 && ar.version < 13) {
+    if (!ar.Saving() && !hasTagEdges) {
         g_tagHeld = 0x0F;
         g_benchRequests[0] = g_benchRequests[1] = g_spentBenchChord = 0;
         g_reselect = kOrdinary;
@@ -377,7 +378,7 @@ void CrossFeverState(Archive &ar) {
     }
     ar.Mark(0x43465653); // CFVS
     ar.Pod(g_gaugeSteps);
-    if (ar.version == 0 || ar.version >= 13) {
+    if (hasTagEdges) {
         // Early v13 wrote a four-bit held mask followed by transient edges with no bench
         // ownership. Preserve their widths; the mark distinguishes two valid owner slots on load.
         uint8_t held = g_tagHeld | (g_spentBenchChord << 4);

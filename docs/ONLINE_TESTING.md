@@ -64,6 +64,21 @@ Also repeat after menu-hosted disconnects and rejoining, reset/rehost, and ordin
 all six attack buttons for each owner, tags, simultaneous Duo, expiry and KO. Synthetic inputs and local processes
 do not establish physical-controller or real internet acceptance.
 
+## November 20 board timing integration (protocol 14)
+
+The four-player build includes the board-speed default from upstream #425. All playing machines and spectators need protocol 14, even when two launchers display the same beta.3 version. Direct UDP tests in both directions refused a player on protocol 13 or 14 when the host used the other protocol, then admitted a matching player into the same seat.
+
+| Local MVC run, one player per process | Shared confirmed frames | Frames matched by the late spectator |
+| --- | ---: | ---: |
+| Arcade perfect, Dreamcast teams | 1,488 | 1,449 |
+| Every clock, adjacent teams | 1,490 | 1,450 |
+
+Both matches used four processes, two frames of configured input delay and 50 ms simulated delay with 25 ms jitter and 5% packet loss on each sending process. Guests began with the opposite slowdown and gauge preferences. The offline input movie matched every shared frame in each run. These hashes measure simulation agreement. They do not measure physical input latency.
+
+To repeat the first run, use `GAME=mvsc MACHINES=4 SLOWDOWN=0 MVC_TEAM_ORDER=0 MVC_GAUGE=0 FIRST_TO=1 WATCH=1 bash tools/check_online.sh 1500` with the built game and its ROM. Set `SLOWDOWN=1 MVC_TEAM_ORDER=1` for the second run. The fresh board-timing gameplay test also probes all four controller owners during simultaneous Duo in `tools/check_mvc_gauges.py`.
+
+Version 14 disk saves combine the DMA progress added in upstream v13 with the partner-tag input history from preview v13. Seven original saves across MVC and Vampire Savior loaded. Each matched its equivalent v14 save for 90 simulation frames and produced a byte-identical re-save, including an MVC preview with both bench tag chords held.
+
 ## November 19 review checks (protocol 13)
 
 These tests use local processes and scripted controller inputs. The uneven-link runs inject delay on each
@@ -111,7 +126,7 @@ For the paid versus comparison, run both executables separately from clean direc
 "$GAME_EXE" --rom "$ROM" --headless --frames 5400 --movie "$MOVIE" --settings settings.ini --eeprom board.eep --hash-log full.hash --shot-every 900:frame-
 ```
 
-Compare the two `full.hash` files and the six PNGs. For MVC’s [four point tags](test-data/mvc-classic-point-tags.txt), add `--features free_play,tag_team=2` and check the controller handoffs above. `GAME=vampire_savior tools/check_online.sh 1500` also reproduced Tommy’s #415 transport test on the initial merge. Host, guest and offline replay agreed on 1,497 confirmed frames at 50±25 ms simulated delay and 5% loss.
+Compare the two `full.hash` files and the six PNGs. For MVC’s [four point tags](test-data/mvc-classic-point-tags.txt), add `--features free_play,tag_team=2` and check the controller handoffs above. On builds with the Slowdown selector, include `slowdown=1` in the feature list for both historical movies to reproduce their every-clock timing. `GAME=vampire_savior tools/check_online.sh 1500` also reproduced Tommy’s #415 transport test on the initial merge. Host, guest and offline replay agreed on 1,497 confirmed frames at 50±25 ms simulated delay and 5% loss.
 
 [Four-player FT10 capture with long names](screenshots/mvsc/ft10-team-names.png). The whole-collection builds cover compilation. The comparisons above cover the named games and scenes.
 
@@ -134,7 +149,7 @@ turn down **Online HUD opacity**. These comparisons have static versions for rea
 | A physical input sampled during a wait and its next two accepted frames | [SDL input timeline](screenshots/mvsc/sampled-tap.gif) | [Press and release](screenshots/mvsc/sampled-tap.png) |
 | Classic 2v2 with a point player's motion and a different player's tag chord | [Command ownership](screenshots/mvsc/tag-command-ownership.gif) | [Fighter inputs and meter](screenshots/mvsc/tag-command-ownership.png) |
 
-Use a build from the same revision on **all machines**. The startup log gives the game, reported version, protocol and game signature. Protocol 11 introduced asymmetric rosters. Protocol 12 was the November 18 preview. Protocol 13 covers the held-tag, taunt and roster changes for players and spectators. The signature identifies game data for the handshake; record the source revision separately. Three-human joining by code
+Use a build from the same revision on **all machines**. The startup log gives the game, reported version, protocol and game signature. Protocol 11 introduced asymmetric rosters. Protocol 12 was the November 18 preview. Protocol 13 introduced the held-tag, taunt and roster changes. Protocol 14 requires the same board timing and rollback state layout for all players and spectators. The signature identifies game data for the handshake; record the source revision separately. Three-human joining by code
 requires an updated introduction service. To isolate the service on a reachable route, join the host by address.
 The production service is independently deployed.
 

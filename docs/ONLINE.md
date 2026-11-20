@@ -35,7 +35,7 @@ Each player needs the game and its ROM set. The launcher's **Online** page (in t
   into your game as it is and press Start to challenge you. Esc asks whether to stop hosting.
 
 All players and viewers need the **same version and build** of CPS-2 Recomp; the launcher shows its version at the
-top of the sidebar. This branch uses protocol 13 for the current roster, tag and Cross Fever rules. All playing
+top of the sidebar. This branch uses protocol 14 for board timing and the current roster, tag and Cross Fever rules. All playing
 machines and viewers need the same build even when two downloads display the same release number.
 A match on another version is greyed in Online matches, and a code for one says so. Your ROM sets can be different
 regions of the same game (`mvscj` against `mvsc`, say): the match is played as the host's region. That is best
@@ -200,7 +200,7 @@ build/mvsc/mvsc --rom rom/mvsc --join 127.0.0.1:7845 --net-service off   # (the 
   (the Display page, the shader, the custom soundtrack). There's no zoom online: both see the whole picture, as the
   board shows it. The match takes the host's board settings
   (difficulty, timer, rounds, the Marvel games' game speed and turbo...) and the host's features that change play (free
-  play, arcade timing, widescreen, hidden characters, the stage chosen on the menu's Stage page...), for the match
+  play, the slowdown, widescreen, hidden characters, the stage chosen on the menu's Stage page...), for the match
   only: the other player's own are left as they are. The host chooses them before hosting (the launcher's pages, or the in-game menu before choosing Host); during
   the match the in-game menu shows them as the match has them and doesn't change them.
 - **Four players** (the tag-team games: X-Men vs. Street Fighter, Marvel Super Heroes vs. Street Fighter, Marvel vs.

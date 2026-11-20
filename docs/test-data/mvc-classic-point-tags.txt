@@ -1,4 +1,4 @@
-# Classic four-player MVC from cold boot. Run with free_play,tag_team=2. Only the current point presses HP+HK.
+# Classic four-player MVC from cold boot. Run with slowdown=1,free_play,tag_team=2. Only the current point presses HP+HK.
 0 0000 0000 0000 0000
 1200 0000 0000 0400 0000
 1206 0000 0000 0000 0000

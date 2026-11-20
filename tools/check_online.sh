@@ -29,6 +29,7 @@
 # NET_PROFILES lists one outgoing MS:JITTER:LOSS profile per machine, host first. NET_DELAY chooses host delay.
 # MVC_TEAM_ORDER=0|1 tests Dreamcast or adjacent teammates with four MVC players. Guests start with the opposite preference.
 # MVC_GAUGE=0|1 tests fighting-only or passive meter against opposite guest settings.
+# SLOWDOWN=0|1 checks the host's board timing choice against the opposite guest setting.
 # MVC_CUSTOM=1 exercises the alternative Cross Fever rules on the host and in the offline replay.
 # FIRST_TO=0|1|2 checks the host's Casual/FT5/FT10 choice against different choices on all joining machines.
 # WATCH=1 adds a viewer after play starts and compares its confirmed frame hashes with the host's.
@@ -113,6 +114,14 @@ done
 play=$("build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '($2=="Game"||$2=="Cheats"||$2=="Display") && NF==5 &&
     $1 !~ /^(display_|window_size|run_ahead|custom_soundtrack|widescreen_walls|custom_colours)/ {print $1}' | paste -sd, -)
 play="${play:+$play,}widescreen"
+if [ -n "${SLOWDOWN:-}" ]; then
+    case "$SLOWDOWN" in 0|1) ;; *) echo "SLOWDOWN must be 0 (Arcade perfect) or 1 (None)"; exit 1 ;; esac
+    if ! "build/$GAME/$GAME" --list-features | awk -F'\t' '$1=="slowdown" && $2=="Game" && $6=="Arcade perfect|None" {found=1} END {exit !found}'; then
+        echo "SLOWDOWN requires the Arcade perfect / None board timing option"; exit 1
+    fi
+    play="$play,slowdown=$SLOWDOWN"
+    guest_set="${guest_set:+$guest_set,}slowdown=$((1 - SLOWDOWN))"
+fi
 # (the host's stage choice is the match's on games with the top-level Stage page)
 if "build/$GAME/$GAME" --list-features 2>&1 | awk -F'\t' '$1=="stage" && $2=="Stage" {found=1} END {exit !found}'; then
     play="$play,stage=2"

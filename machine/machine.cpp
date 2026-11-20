@@ -46,6 +46,11 @@ Machine::Machine(const RomSet &roms)
     , m_picture(static_cast<size_t>(Video::kMaxWidth) * Video::kHeight)
     , m_cps1(roms.board.cps1)
     , m_cyclesPerLine(roms.board.cps1 ? kCps1CpuCyclesPerLine * roms.board.cpuClock / 12 : kCpuCyclesPerLine) {
+    // (the board's bus waits: what is outside them, by the board's PAL; M68K::WaitedFor)
+    if (roms.board.cps1) {
+        cpu.unwaitedLow = roms.board.qsound ? 0xF00000 : 0x400000;
+        cpu.unwaitedHigh = roms.board.qsound ? 0xFF0000 : 0x800000;
+    }
     Video::Sources sources;
     sources.graphics = roms.graphics.data();
     sources.graphicsSize = roms.graphics.size();
@@ -486,38 +491,58 @@ uint16_t Machine::Fetch16(uint32_t address) {
     return Read16(address); // (code in RAM is not enciphered)
 }
 
-// The 68000's clocks the CPS-A's DMA holds the bus for at the start of this line (docs/TIMING.md), as jtcps2 has the
-// chip (jtcps1_dma.v, after jotego's measurements of a board): a word every 4 clocks, of the row scroll's table (one
-// a line), a scroll layer's next row of tiles (100, 98 and 30 words) when the line with its vertical scroll reaches
-// one, and every enabled palette page (512 words) at the line after the game sets the palette's base. Lines are
-// counted as the chip's DMA counts them, two ahead of the picture's; none in vertical blanking but the palette's.
+// The video chip's DMA at a line, in the 68000's clocks it holds the bus for (the board's timing: SetBoardTiming). As
+// jtcps1_dma.v (jotego's, after his measurements of a board) does it, for the CPS-2 and the CPS-1 alike: a word every
+// four steps of its 16 MHz, of the row scroll's table (one a line), a scroll layer's next row of tiles (100, 98 and 30
+// words) when the line with its vertical scroll reaches one, every enabled palette page (512 words) at the line after
+// the game sets the palette's base, and on a CPS-1 one entry of the object table (4 words) a line, all 256 of them
+// from the line after the game sets the table's base. Lines are counted as the chip's DMA counts them, two ahead of
+// the picture's; none in vertical blanking but the palette's and the objects'. Its steps are turned into the 68000's
+// clocks (16 MHz on CPS-2: one a step; 12 or 10 on CPS-1), what is left over of a clock kept for the next line.
 uint32_t Machine::LineDma() {
     const int v = (m_line + 2) % kLines;
     const bool rows = v < 240 || v > 257;
     const uint16_t control = cpsA[0x22 / 2];
     const int next = v + 1;
-    uint32_t words = 0;
+    uint32_t words = 0, slots = 0; // (slots: how far along its tasks' places the DMA goes)
+    auto task = [&](uint32_t n, uint32_t slot) {
+        words += n;
+        slots = std::max(slots, slot + 1);
+    };
     if ((control & 1) && rows) {
-        words += 1;
+        task(1, 0);
     }
     if ((control & 2) && rows && ((next + cpsA[0x0E / 2]) & 7) == 0) {
-        words += 100;
+        task(100, 2);
     }
     if ((control & 4) && rows && ((next + cpsA[0x12 / 2]) & 15) == 0) {
-        words += 98;
+        task(98, 3);
     }
     if ((control & 8) && ((rows && ((next + cpsA[0x16 / 2]) & 15) == 0) || v == 0)) {
-        words += 30;
+        task(30, 4);
+    }
+    if (m_objectDmaLeft) {
+        m_objectDmaLeft--;
+        task(4, 1);
     }
     if (m_palettePending) {
         m_palettePending = false;
-        unsigned pages = 0;
-        for (uint16_t enabled = cpsB[0x30 / 2] & 0x3F; enabled; enabled &= enabled - 1) {
-            pages++;
+        const uint16_t enabled = cpsB[m_roms.board.paletteControl / 2] & 0x3F;
+        for (int page = 0; page < 6; page++) {
+            if (enabled & (1 << page)) {
+                task(512, 5 + page);
+            }
         }
-        words += pages * 512;
     }
-    return words ? words * 4 + 2 : 0; // (and its start)
+    if (!slots) {
+        return 0;
+    }
+    // (in steps of its 16 MHz, 1024 of them a line: four a word; one for each of its eleven tasks' places it goes
+    // through, in order, up to the last it has this line (row scroll, objects, the three layers, the six palette
+    // pages: a step at each, done or not); and one as it gives the bus back)
+    const uint32_t scaled = (words * 4 + slots + 1) * static_cast<uint32_t>(m_cyclesPerLine) + m_dmaCarry;
+    m_dmaCarry = scaled % 1024;
+    return scaled / 1024;
 }
 
 // 68000 cycles into the line
@@ -853,6 +878,11 @@ void Machine::WriteCps1(uint32_t address, uint16_t value, uint16_t mask) {
                 nativeVideo.frame = frame;
                 nativeVideo.BoardPalette(video.DecodePalette());
             }
+            m_palettePending = boardTiming; // (... by DMA, at the next line: LineDma)
+        }
+        if (index == 0 && boardTiming && mask == 0xFFFF) {
+            m_objectDmaLeft = 256; // (the object table's base: the DMA copies the table, from the next line; jtcps1_mmr
+                                   // takes only a whole word's write)
         }
         return;
     }
@@ -1116,6 +1146,22 @@ void Machine::Serialize(Archive &ar) {
         ar.Pod(m_palettePending);
     } else if (!ar.Saving()) {
         m_palettePending = false;
+    }
+    // The preview's v13 ends the machine here or continues with a section mark (classic sound or game
+    // state). Upstream's v13 first writes a count in 0..256, which cannot start a four-character mark.
+    if (ar.version == 13 && !ar.Saving()) {
+        ar.v13BoardDma = !ar.AtEnd() && !ar.NextSectionMark();
+    }
+    // Embedded round starts, spare boards and guest boards are machine-only archives without a version.
+    // Old ones end here on QSound boards or continue immediately with classic CPS-1 sound.
+    const bool oldSnapshot = ar.version == 0 && !ar.Saving() && (ar.AtEnd() || (m_classic && ar.NextMark(0x43505331)));
+    if ((ar.version == 0 && !oldSnapshot) || ar.version >= 14 || (ar.version == 13 && ar.v13BoardDma)) {
+        ar.Pod(m_objectDmaLeft);
+        ar.Pod(m_dmaCarry);
+        ar.Check(m_objectDmaLeft <= 256 && m_dmaCarry < 1024);
+    } else if (!ar.Saving()) {
+        m_objectDmaLeft = 0;
+        m_dmaCarry = 0;
     }
     if (m_classic) {
         if (ar.version == 0 || ar.version >= 10) { // (the classic CPS-1's sound: from version 10)

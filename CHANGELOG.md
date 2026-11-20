@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Every game runs at the board's speed** (testers: Hyper Fighting and Super Turbo too fast): the board's timing is
+  now the default for every game, the CPS-1 games included. Street Fighter II's turbo speeds (Hyper Fighting's, Super
+  Turbo's) fit in more of the game's work wherever a frame has time to spare, so with every clock the port ran them
+  faster than the board: in a fight Super Turbo's round clock ticked every 27.3 frames, and every 31 with the board's
+  timing; Hyper Fighting's every 29, and every 33.5 with the board's timing. **Slowdown** (Game page, every game but the shoot-'em-ups, which
+  have their own) replaces Arcade timing, off unless chosen: **Arcade perfect** (the default) or **None** (every clock).
+- **The CPS-1's board timing**: its PAL's wait on every access outside 400000-7FFFFF (F00000-FEFFFF on the QSound
+  board), and the CPS-A's DMA as on the CPS-1, where the objects are in video RAM: one entry of the object table a line,
+  all 256 from the line after the game sets the table's base, as well as the row scroll, the tile rows and the palette.
+  The DMA's time is counted in its own 16 MHz and turned into the 68000's clock (16, 12 or 10 MHz), with the step its
+  scheduler takes at each of its eleven tasks' places up to the last one in use (jtcps1_dma.v). Checked against jtcps1
+  simulated (docs/ARCADE_ACCURACY.md): the DMA within 0.05% a frame, and Hyper Fighting's fight at the core's speed
+  within 0.2% (34.90 frames a round-clock second against 34.96; every clock: 30.89, 11.6% fast). On CPS-2 the same rule leaves Street Fighter Alpha 2 the reference's at
+  5,634 of 5,671 frames (5,639 before; single frames in the fight), its DMA within 0.16% a frame (0.3% before).
+- `--check-rewrites` runs the readable rewrites with the board's timing on too (a plain run takes the game's own code
+  in their place). Version 14 saves include the board’s object-copy progress, the DMA clock and MVC’s partner-tag state.
 - **Marvel vs. Capcom Tag team** supports three players, with the two teammates on either side. In a four-player
   match the host can pair P1/P2 against P3/P4 in classic Tag team or Cross Fever. P1/P3 against P2/P4 remains the
   default. A reserve player can hold HP+HK to tag when the game allows it, or release to cancel. Only the point
@@ -14,7 +30,7 @@
   the system recognizes it. In a local MVC fight, **Pause on controller disconnect** shows which player's pad to
   reconnect.
 - **Hosting and match settings** let the host set input delay and choose an unlisted match from inside the game.
-  The match menu includes MVC's host rules and each player's own display and input settings. Protocol 13 supports
+  The match menu includes MVC's host rules and each player's own display and input settings. Protocol 14 carries board timing and four-player state, supports
   three-person rooms and requires matching builds for players and spectators. [Hosting](docs/ONLINE.md).
 - **Input during network waits** defaults to **Retain short taps**, which keeps sampled presses and releases in
   order while the match waits. Choose **Current state** to use the controls held when each frame advances. Online

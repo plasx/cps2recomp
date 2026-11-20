@@ -408,7 +408,7 @@ with: the maps, the scrolls, the row scroll, the layer control, the objects' off
 - The game's side keeps state of its own (what the game last said to each register, the list it handed over). It is
   not yet in the save state, so a check run is to start from the program's start, not from a loaded state or a
   rollback.
-- **Board timing:** with `arcade_timing`, rewrites run only when a game's features need them, and then without the
+- **Board timing:** with the board's timing (the default slowdown, Arcade perfect), rewrites run only when a game's features need them, and then without the
   bus's waits (`runtime/recomp.cpp`), as for every rewrite. A video lift that is to run always must count the waits
   of the instructions it replaces. That comes before the native renderer is the default.
 

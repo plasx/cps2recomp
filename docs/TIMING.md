@@ -1,33 +1,42 @@
 # The board's timing
 
-A CPS-2 board does not give its 68000 every clock. The port's **arcade timing** (the `arcade_timing` feature,
-off unless chosen; `machine/machine.h`, `SetBoardTiming`) takes from it what the board takes, so a game runs short
-of time in a frame, and slows down, where and as much as it does on the board. With it off the 68000 has every
-clock, as the port has always run it: the games then do about a third more work in a frame than the board lets
-them, and seldom slow down.
+A CPS-2 or CPS-1 board does not give its 68000 every clock. The port's board timing (the `slowdown` feature on the
+Game page: **Arcade perfect**, the default, or **None**; `machine/machine.h`, `SetBoardTiming`) takes from it what
+the board takes, so a game runs short of time in a frame, and slows down, where and as much as it does on the board.
+With **None** the 68000 has every clock: the games then do about a third more work in a frame than the board lets
+them and seldom slow down, and a game that fits in more of its own work when a frame has time to spare runs faster
+than on the board (Street Fighter II's turbo speeds: Hyper Fighting's and Super Turbo's round clock ticks about 13%
+sooner). The shoot-'em-ups have their own Slowdown row, the same choice with None overclocked.
 
 ## What the board takes
 
 - **The acknowledge.** The board answers the 68000 a clock late for every bus access outside 500000-7FFFFF: the
   ROM (instruction fetches too), work RAM, video RAM and the I/O ports; the QSound's shared memory, the extra RAM
-  and the object RAM are not waited for (`M68K::busWait`, `WaitedFor`). The port counts a clock for each word of an
+  and the object RAM are not waited for (`M68K::busWait`, `WaitedFor`). A classic CPS-1 does the same outside
+  400000-7FFFFF (its PAL PRG1's /ONE WAIT: everything the game uses), and a CPS-1 with QSound outside F00000-FEFFFF
+  (PRG2's: its QSound memory is not waited for). The port counts a clock for each word of an
   instruction (as the 68000 fetches them), each byte or word of data it reads or writes, a word more where a one-word
   instruction goes elsewhere (a taken short branch, `rts`, `jmp (an)`, `rte`, `trap`: the 68000 fetches two words
   there in place of the one it had fetched ahead; all but the branch always do, even to the next word, as a jump
   table's first entry is), and three for an interrupt (its acknowledge and the handler's
   first two words). The interpreter counts them as it goes; translated code adds them up over each run of
   instructions and charges them before one that may go elsewhere (`tools/recomp.py`), so the two stay alike cycle
-  for cycle (`make check-blocks` with `ARGS="--features arcade_timing"`).
+  for cycle (`make check-blocks`).
 - **The video chip's DMA.** The CPS-A takes the bus to copy what it draws from into its own memory, a word every
-  four clocks (`Machine::LineDma`): at every line, the row scroll's word (if row scroll is on); when the line reaches
-  a new row of a scroll layer's tiles (every 8 lines for the first layer, 16 for the others, by their vertical
-  scroll), that row (100, 98 and 30 words); and at the line after the game sets the palette's base, every enabled
-  palette page (512 words each: about 12,300 clocks for all six, most of the vertical blank). That is 7 to 13% of a
-  frame.
+  four steps of its 16 MHz (`Machine::LineDma`): at every line, the row scroll's word (if row scroll is on); when the
+  line reaches a new row of a scroll layer's tiles (every 8 lines for the first layer, 16 for the others, by their
+  vertical scroll), that row (100, 98 and 30 words); at the line after the game sets the palette's base, every
+  enabled palette page (512 words each: about 12,300 clocks of a CPS-2's for all six, most of the vertical blank);
+  and on a CPS-1, whose objects are in video RAM, one entry of the object table (4 words) a line, all 256 from the
+  line after the game sets the table's base. Its scheduler takes a step at each of its eleven tasks' places in turn
+  (row scroll, objects, the three layers, the six palette pages), done or not, up to the last it has that line, and
+  one more as it gives the bus back. Its steps are turned into the 68000's clocks (one a step on a CPS-2's 16 MHz;
+  12 or 10 MHz on a CPS-1), what is left over of a clock kept for the next line. That is 7 to 13% of a CPS-2's frame
+  and about 14% of a CPS-1's.
 
 What the port's own code does in place of the game's (the readable rewrites, `runtime/lift.h`) takes the time its
 original takes without the board's waits; and a rewrite that calls into the game's code runs it to the end at once.
-So with arcade timing the game's own code runs in place of the rewrites, unless the game's sources need them
+So with the board's timing the game's own code runs in place of the rewrites, unless the game's sources need them
 for something the port adds (`Game::rewritesNeeded`: training mode, the sources' own modes, widescreen, the cheats
 that work inside a rewrite). There the timing is close, not exact. The port's own code takes none of the board's
 waits: a hook only looks at the game (it reads memory without the 68000), and a rewrite charges what it says
@@ -56,7 +65,7 @@ The run found more on the way, now part of the rules: the refetch after a taken 
 waits (the settings memory's routine, all short loops, was 10% fast without them); a rewrite that runs game code to
 the end at once (it put two frames of work into one at a knockout); and the settings memory's shortcut
 (`runtime/board.h`), timed without the board's waits, which the game's own routine now replaces. And
-`make check-blocks` with the arcade timing on (every game's ladder movie, 6,000 frames: 33 to 38 million blocks)
+`make check-blocks` with the board's timing on (every game's ladder movie, 6,000 frames: 33 to 38 million blocks)
 found the interpreter's other ways of running an instruction counting the refetch differently, and hooks charged for
 the memory they read: both fixed. With different timing a game can also reach code its exploration never did (Super
 Puzzle Fighter II Turbo jumped into what the translator had taken for data): the interpreter runs it, and
@@ -73,8 +82,10 @@ Puzzle Fighter II Turbo jumped into what the translator had taken for data): the
 - **The sound side**: the Z80 and the QSound are the port's as always. jtcps2 cannot run its QSound without the
   chip's own program (not part of a ROM set), so for the comparison its QSound said it was always ready; the port's
   kept its own timing (the game sees the sound side only in how soon the Z80 takes its requests).
-- Only Street Fighter Alpha 2 was compared with the reference so far; Vampire Savior and Super Puzzle Fighter II
-  Turbo have the same board and chips, and the same rules.
+- Street Fighter Alpha 2 was compared with jtcps2 and Hyper Fighting with jtcps1; the other games have the same
+  boards and chips, and the same rules. The CPS-1 with QSound (Cadillacs and Dinosaurs, The Punisher) has the
+  CPS-1's DMA and its own PAL's waits, but not yet the QSound side's own wait for the Z80's shared memory, and was
+  not compared with jtcps15.
 
 ## How close it is
 

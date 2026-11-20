@@ -195,10 +195,11 @@ themselves with `--music-test 5400` (with `--test-switch 300:99999999`, so that 
 QSound board's) the table follows a word of how many songs there are, near the start of the second 32 KB: a run of
 four-byte entries whose fourth byte is 0 and whose address is inside the program finds it.
 
-## Arcade timing
+## The board's timing
 
-The port's `arcade_timing` feature runs the 68000 with the board's waits and the video chip's DMA
-([TIMING.md](TIMING.md)). With it on, the game's own code runs in place of the rewrites, whose time is only their
+The port's `slowdown` feature (Game page; its first choice, Arcade perfect, unless another is chosen) runs the 68000
+with the board's waits and the video chip's DMA ([TIMING.md](TIMING.md)); `slowdown=1` (None) gives it every clock.
+With the board's timing, the game's own code runs in place of the rewrites, whose time is only their
 originals' without the waits; a game whose sources add something inside a rewrite (a cheat that changes the damage,
 widescreen's camera, a mode of its own) says when the rewrites are needed with `TheGame().rewritesNeeded`, and they
 run then, with time close to the board's but not exact. A new feature that works inside a rewrite belongs in that

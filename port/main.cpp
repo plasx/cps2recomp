@@ -87,12 +87,13 @@ namespace {
 } // namespace
 
 namespace {
-    constexpr uint32_t kStateVersion = 13; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
+    constexpr uint32_t kStateVersion = 14; // (5: the 68000's wait kept; 6: the custom soundtrack's place; 7: the board timing's palette copy;
                                           // 8: widescreen's camera a frame ago; 9: a guest board's, runtime/guest.h;
                                           // 10: classic CPS-1 sound, machine/cps1_sound.h; 11: live tag swaps (upstream),
                                           // or MVC starting order/Cross Fever clock (the four-player preview);
                                           // 12: both branches combined; legacy MVC 11 parts are identified by their marks;
-                                          // 13: MVC partner-tag input edges)
+                                          // 13: either board DMA timing (upstream) or MVC partner-tag input edges (preview);
+                                          // 14: both layouts combined)
 
     // (a path is UTF-8 text: by its wide name on Windows, where a folder with an accent is not in the system's code page)
     FILE *OpenFile(const std::string &path, const wchar_t *wideMode, const char *mode) {
@@ -491,9 +492,10 @@ bool ReadDeclaredFeatures(std::string& error) {
 
 // Every game's features that come from the port itself (after the game's own: RegisterGame), for the game and
 // for the list the launcher asks for (--list-features)
-// The board's timing: the port's arcade_timing feature, or what the game's sources say (Game::boardTiming)
+// The board's timing: the port's slowdown feature ("Arcade perfect", the first choice, unless another is chosen), or
+// what the game's sources say (Game::boardTiming)
 bool BoardTimingWanted() {
-    return TheGame().boardTiming ? TheGame().boardTiming() : FeatureOn("arcade_timing");
+    return TheGame().boardTiming ? TheGame().boardTiming() : FeatureValue("slowdown") == 0;
 }
 
 void RegisterPortFeatures() {
@@ -523,16 +525,19 @@ void RegisterPortFeatures() {
                                   "on the board (input lag taken away). The game runs as it does without it; it takes two or three "
                                   "times the processor. Off by itself in the game's own modes beyond fights and training.",
                                   0, {"Off", "1 frame", "2 frames"}});
-    // (arcade_timing: machine.h, SetBoardTiming; docs/TIMING.md. Not for a game whose sources decide it: Game::boardTiming)
+    // (slowdown: machine.h, SetBoardTiming; docs/TIMING.md. Not for a game whose sources decide it: Game::boardTiming,
+    // a shooting game's own Slowdown row)
     if (!TheGame().boardTiming) {
-        TheGame().features.push_back({"arcade_timing", "Game", "Arcade timing",
-                                      "The processor runs as on the arcade board, waiting for its memory and giving the bus to the "
-                                      "video chip, so the game slows down where and as much as the board does (big supers, busy "
-                                      "screens). Off: it has every clock, and the game seldom slows. Checked frame by frame against "
-                                      "a cycle-exact model of the board. In training mode, the game's other modes, widescreen and "
-                                      "with cheats on, the port's own code for some routines runs, and the timing there is close "
-                                      "but not exact.",
-                                      0});
+        TheGame().features.push_back({"slowdown", "Game", "Slowdown",
+                                      "Arcade perfect: the processor runs as on the arcade board, waiting for its memory and giving "
+                                      "the bus to the video chip, so the game runs at the board's speed and slows down where and as "
+                                      "much as the board does (big supers, busy screens); checked frame by frame against a "
+                                      "cycle-exact model of the board. None: the processor has every clock, so the game seldom "
+                                      "slows, and a game that fits in more of its work when it has time (Street Fighter II's turbo "
+                                      "speeds) runs faster than on the board. In training mode, the game's other modes, widescreen "
+                                      "and with cheats on, the port's own code for some routines runs, and the timing there is "
+                                      "close but not exact.",
+                                      0, {"Arcade perfect", "None"}});
     }
     // (rapid_fire: Port::RapidFire)
     TheGame().features.push_back({"rapid_fire", "Game", "Rapid fire",
@@ -2690,17 +2695,19 @@ bool Port::LoadState(const std::string &path, std::string &error) {
     const bool known = version >= 5 && version <= kStateVersion;
     ar.version = version;
     if (ar.Ok() && known) {
+        std::vector<uint8_t> previous;
+        KeepState(previous);
         machine->Serialize(ar);
-        if (TheGame().state) {
+        if (ar.Ok() && TheGame().state) {
             TheGame().state(ar);
         }
+        if (ar.Ok() && ar.AtEnd()) {
+            return true;
+        }
+        PutBackState(previous);
     }
-    if (!ar.Ok() || !known) {
-        error = path + " is not a state this build wrote";
-        machine->Reset();
-        return false;
-    }
-    return true;
+    error = path + " is not a state this build wrote";
+    return false;
 }
 
 // --music-test: each piece of the game's music (machine/soundtrack.h) on the board in turn, opt.musicTest frames each,

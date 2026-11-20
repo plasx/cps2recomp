@@ -25,6 +25,9 @@ public:
     // The version of the save state being read, where the port knows it (0: as this build writes): a part added
     // since is read only from states that have it
     uint32_t version = 0;
+    // The two v13 writers used different layouts. Machine::Serialize identifies upstream's board DMA
+    // at its section boundary, before the game reads its own part of the same archive.
+    bool v13BoardDma = false;
 
     bool Saving() const {
         return m_saving;
@@ -32,6 +35,26 @@ public:
     // False once something read did not fit what was written
     bool Ok() const {
         return m_ok;
+    }
+    bool AtEnd() const {
+        return !m_saving && m_at == m_data.size();
+    }
+    void Check(bool valid) {
+        m_ok = m_ok && valid;
+    }
+    // The sections following machine state in v13 start with four uppercase ASCII letters or digits.
+    // Inspect only the current boundary. The receiving section still checks its exact mark.
+    bool NextSectionMark() const {
+        if (m_saving || m_data.size() - m_at < sizeof(uint32_t)) {
+            return false;
+        }
+        for (size_t i = 0; i < sizeof(uint32_t); ++i) {
+            const uint8_t c = m_data[m_at + i];
+            if (!(c >= 'A' && c <= 'Z') && !(c >= '0' && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
     }
     // Some preview builds shared a version number with upstream but added different marked parts. Look without
     // consuming bytes, so the game's compatibility path can distinguish an absent part from a required one.
@@ -44,10 +67,13 @@ public:
         return value == mark;
     }
     void Bytes(void *p, size_t size) {
+        if (!m_ok || size == 0) {
+            return;
+        }
         if (m_saving) {
             const uint8_t *bytes = static_cast<const uint8_t *>(p);
             m_data.insert(m_data.end(), bytes, bytes + size);
-        } else if (m_at + size <= m_data.size()) {
+        } else if (size <= m_data.size() - m_at) {
             memcpy(p, &m_data[m_at], size);
             m_at += size;
         } else {
@@ -66,7 +92,7 @@ public:
         uint64_t count = values.size();
         Pod(count);
         if (!m_saving) {
-            if (!m_ok || count * sizeof(T) > m_data.size() - m_at) {
+            if (!m_ok || count > (m_data.size() - m_at) / sizeof(T)) {
                 m_ok = false;
                 return;
             }
@@ -78,7 +104,7 @@ public:
     void Mark(uint32_t mark) {
         uint32_t value = mark;
         Pod(value);
-        m_ok = m_ok && value == mark;
+        Check(value == mark);
     }
 
 private:

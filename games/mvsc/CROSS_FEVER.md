@@ -84,8 +84,8 @@ the 86-frame sample. Delaying the arcade chord by zero through five displayed fr
 vertical position differed by 0.875 units between platforms, and a display sample can span two game steps.
 This case gives us no damage correction to port.
 
-To replay the arcade comparison, use the [two-player movie](movies/ryu_contact_arcade.txt) with `--features free_play`
-and the [four-player movie](movies/ryu_contact_cross_fever.txt) with `--features free_play,tag_team=2,cross_fever`.
+To replay the arcade comparison at its recorded every-clock timing, use the [two-player movie](movies/ryu_contact_arcade.txt) with `--features slowdown=1,free_play`
+and the [four-player movie](movies/ryu_contact_cross_fever.txt) with `--features slowdown=1,free_play,tag_team=2,cross_fever`.
 Use a fresh settings file and EEPROM for each. With `--frames 4640 --trace FF3000-FF449F:trace`, compare the
 attacker and victim records at FF3000 and FF3400, in particular +0xD0 (held), +0x270 (life), +0xB0 (action)
 and +0x06 (state). The attack is on movie frame 4500. On Dreamcast the corresponding life word is +0x268.

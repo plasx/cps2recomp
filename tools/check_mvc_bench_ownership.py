@@ -31,8 +31,9 @@ def play(work, args, rows, frames, features):
     with (work / 'input.txt').open('w') as movie:
         for frame, words in sorted(rows.items()):
             movie.write(f'{frame} ' + ' '.join(f'{word:04x}' for word in words) + '\n')
+    # The hit, recovery and tag assertions use the exact every-clock frames recorded for this movie.
     result = subprocess.run([args.program, '--rom', args.rom, '--headless', '--cpu', 'interp', '--frames', str(frames),
-                             '--movie', 'input.txt', '--features', 'free_play,tag_team=2' + features,
+                             '--movie', 'input.txt', '--features', 'slowdown=1,free_play,tag_team=2' + features,
                              '--trace', 'FF3000-FF410F:trace', '--settings', 'settings.ini', '--eeprom', 'eeprom'],
                             cwd=work, capture_output=True, text=True)
     if result.returncode:

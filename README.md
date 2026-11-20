@@ -146,8 +146,9 @@ Linux, the Steam Deck and Windows can play each other.
 - **An in-game menu**: save states, speed and pause, frame advance, cheats and every option.
 - **English, Brazilian Portuguese or Spanish** in the launcher and every game's menu: chosen once in the launcher (or
   the system's language). The games' own words are left as they are.
-- **Arcade timing**: the processor slows down where and as much as the real board does, checked frame by frame
-  against a cycle-exact model of it ([docs/TIMING.md](docs/TIMING.md)). Off unless you choose it.
+- **The board's speed**: the processor runs as on the real board, so every game plays at the board's speed and
+  slows down where and as much as the board does, checked frame by frame against a cycle-exact model of it
+  ([docs/TIMING.md](docs/TIMING.md)). **Slowdown → None** gives it every clock instead.
 - **Run-ahead**, the board's operator settings, free play, rapid fire, and straight to the title at start-up.
 - **A custom soundtrack**: your own music files in place of the board's music ([how](docs/SOUNDTRACK.md)).
 - **Multi game**: play several games one after another, such as an endless battle through every stage of each

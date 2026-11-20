@@ -1,5 +1,5 @@
 # Ryu vs Spider-Man at 62 world units, one standing LP+LK.
-# Start from boot with --features free_play. Input values are hex.
+# Start from boot with --features slowdown=1,free_play. Input values are hex.
 0 0000 0000
 1200 0400 0000
 1206 0000 0000

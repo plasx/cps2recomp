@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Part of cps2recomp.
-"""Cold-boot matching four-owner inputs and compare idle meter, attack gains and Duo payment."""
+"""At the default board speed, check idle meter, attack gains, Duo payment and four-player control."""
 import argparse
 import configparser
 from pathlib import Path
 import subprocess
 import tempfile
 
+from check_mvc_team_order import panel
+
 ROOT = Path(__file__).resolve().parents[1]
 SEED = ROOT / 'games/mvsc/movies/ryu_contact_cross_fever.txt'
-LOW, HIGH = 0xff3270, 0xff4040
-FRAMES = 6400
+LOW, HIGH = 0xff3000, 0xff4040
+FRAMES = 6560
 IDLE = range(4250, 4500)
+# Distinct physical inputs for the two points and their reserves after both teams pay for Duo.
+PROBES = {6460: (0x011, 0x024, 0x042, 0x088), 6500: (0x082, 0x108, 0x201, 0x014)}
 
 
 def make_movie(path):
@@ -24,6 +28,9 @@ def make_movie(path):
         lines += [f'{f} 0040 0040 0000 0000', f'{f+4} 0000 0000 0000 0000']
     lines += ['6280 0004 0004 0000 0000', '6284 0006 0005 0000 0000',
               '6288 0242 0241 0000 0000', '6294 0000 0000 0000 0000']
+    for frame, words in PROBES.items():
+        lines += [f'{frame} ' + ' '.join(f'{word:04x}' for word in words),
+                  f'{frame + 30} 0000 0000 0000 0000']
     path.write_text('\n'.join(lines)+'\n')
 
 
@@ -32,7 +39,8 @@ def read(row):
         # Gauge levels and the current bar's fraction, in the game's units (0x90 per full bar).
         at = base - LOW
         return row[at+2] * 0x90 + int.from_bytes(row[at:at+2], 'big')
-    return gauge(0xff3272), gauge(0xff3672), row[0xff4038-LOW] & 3, row[0xff4000-LOW]
+    held = tuple(int.from_bytes(row[at+0xd0:at+0xd2], 'big') for at in (0, 0x400, 0x800, 0xc00))
+    return gauge(0xff3272), gauge(0xff3672), row[0xff4038-LOW] & 3, row[0xff4000-LOW], held
 
 
 def run(program, rom, passive):
@@ -62,8 +70,13 @@ def run(program, rom, passive):
         duo = next((n for n in range(6288, FRAMES) if rows[n][2] == 3), None)
         if duo is None or any(x >= 0x90 for x in rows[duo][:2]):
             raise ValueError(f'native simultaneous Duo did not spend both full gauges: {duo=}, {charged=}')
+        for frame, words in PROBES.items():
+            expected = tuple(map(panel, words))
+            if not any(row[2] == 3 and row[3] == 8 and row[4] == expected for row in rows[frame:frame+30]):
+                raise ValueError(f'four-player Duo input mismatch in frames {frame}..{frame+29}, expected {expected}')
         print(f'PASS {options}: idle {IDLE.start}..{IDLE.stop-1} {before} -> {after}, '
-              f'after attacks {charged} at 6287, both Duos active at {duo} with {rows[duo][:2]}', flush=True)
+              f'after attacks {charged} at 6287, both Duos active at {duo} with {rows[duo][:2]}, '
+              'two distinct inputs per owner reached all four fighters', flush=True)
 
 
 def check_saved_choices(program, rom):

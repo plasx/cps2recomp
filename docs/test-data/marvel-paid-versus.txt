@@ -1,4 +1,4 @@
-# Paid two-player MVC / MSHvsSF from cold boot; stock choices.
+# Paid two-player MVC / MSHvsSF from cold boot with every-clock timing (--features slowdown=1).
 0 0000 0000
 880 0800 0000
 890 0000 0000

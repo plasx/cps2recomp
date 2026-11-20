@@ -81,14 +81,16 @@ public:
     bool stopped = false; // (after STOP: until an interrupt)
 
     uint64_t cycles = 0; // clock cycles since reset
-    // The board's bus waits (Machine::SetBoardTiming; docs/TIMING.md): on CPS-2 (its DL-1827, as jtcps2_dtack has
-    // it) an access outside 500000-7FFFFF (the ROM, instruction fetches included, work RAM, video RAM, the I/O) is
-    // acknowledged a clock late. 1: counted (each word of program an instruction is, each byte or word of data it
-    // reads or writes, and an interrupt's acknowledge and fetches); 0: not, as the port always ran the 68000.
+    // The board's bus waits (Machine::SetBoardTiming; docs/TIMING.md): an access outside the board's unwaited range
+    // (the ROM, instruction fetches included, work RAM, video RAM, the I/O) is acknowledged a clock late. On CPS-2
+    // (its DL-1827, as jtcps2_dtack has it) that range is 500000-7FFFFF; on a classic CPS-1 (its PAL PRG1's /ONE WAIT)
+    // 400000-7FFFFF; on a CPS-1 with QSound (PRG2's) F00000-FEFFFF. 1: counted (each word of program an instruction
+    // is, each byte or word of data it reads or writes, and an interrupt's acknowledge and fetches); 0: not.
     unsigned busWait = 0;
-    static bool WaitedFor(uint32_t address) {
+    uint32_t unwaitedLow = 0x500000, unwaitedHigh = 0x800000;
+    bool WaitedFor(uint32_t address) const {
         address &= 0xFFFFFF;
-        return address < 0x500000 || address >= 0x800000;
+        return address < unwaitedLow || address >= unwaitedHigh;
     }
     void BusWait(uint32_t address) {
         if (busWait && WaitedFor(address)) {

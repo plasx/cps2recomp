@@ -102,7 +102,7 @@ old removal cannot delete a new arrival; a record recreated after expiry has no 
 need a separate generation token to distinguish arbitrarily delayed old requests. The same suite exercises spectator
 admission to full and direct-address four-player matches, token retries and limits, privacy, host/viewer expiry, rehosting, and combined
 active/removal polling. A known mismatched protocol is rejected before reserving a seat; three-person rooms require protocol 11 or later from the host and a matching protocol from each guest.
-When the host or guest uses protocol 12 or later, the Worker requires the same explicit protocol from the other end for every room size. Spectators also require an exact match. The current game and launcher use protocol 13. It includes MVC’s revised tag and taunt routing. Match rules carry the host’s four-player team order in the normal welcome.
+When the host or guest uses protocol 12 or later, the Worker requires the same explicit protocol from the other end for every room size. Spectators also require an exact match. The current game and launcher use protocol 14. This adds the board timing and rollback state changes to protocol 13’s MVC tag and taunt routing. Match rules carry the host’s four-player team order in the normal welcome.
 
 Older two- and four-player rooms retain their missing-protocol behavior when both ends predate protocol 12. UDP handshakes still enforce the actual protocol.
 

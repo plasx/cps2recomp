@@ -76,7 +76,7 @@ public:
     static constexpr int kDefaultPort = 7845;
     // The packets' layout (2: the host's state sent at the start); two copies must have the same to play, and the
     // lobby shows only matches of this one (the launcher asks with it too)
-    static constexpr int kProtocol = 13; // (3: the version said in the hello and to the service; 4: the welcome's flags;
+    static constexpr int kProtocol = 14; // (3: the version said in the hello and to the service; 4: the welcome's flags;
                                         // 5: the welcome's program words, so two regions' sets play together;
                                         // 6: each player's name in the hello and the welcome, and the chat;
                                         // 7: two players at each machine, as the welcome says, and each one's controls;
@@ -86,7 +86,8 @@ public:
                                         // 10: combined with upstream first-to, spectators and mode events (upstream 9);
                                         // 11: asymmetric three-person rosters and their shared fighter ownership;
                                         // 12: updated deterministic tag/Cross Fever controller routing;
-                                        // 13: revised tag requests, taunt ownership and the common feature negotiation)
+                                        // 13: revised tag requests, taunt ownership and the common feature negotiation;
+                                        // 14: board timing by default and the board DMA state in rollback snapshots)
     static constexpr int kMostSeats = 2;    // players at one machine
     static constexpr int kMostMachines = 4; // machines in a match: the host's, and up to three joining
     static constexpr int kMostAhead = 8;    // frames run on guessed controls at most

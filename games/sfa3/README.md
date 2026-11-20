@@ -14,7 +14,7 @@ as each attack needs, Alpha counters, techs throws, rises quickly, mashes out of
 **alternative modes** (attract mode, the stage and model viewers, survival, endless battle, ring out, and the tag team
 battle with its Marvel-style tag style), **widescreen**, **custom colours** with a colour editor, the **hidden
 characters** with no code (Balrog, Juni and Juli), and the features every game shares: free play, straight to the
-title, the board's operator settings, cheats, save states, run-ahead, arcade timing, a custom soundtrack.
+title, the board's operator settings, cheats, save states, run-ahead, the board's speed, a custom soundtrack.
 
 **[Get started: download it and play →](#playing)**
 
@@ -75,8 +75,9 @@ checked against an interpreter of the same program ([how it was made](PROGRESS.m
   code: hold Start as you choose M. Bison for Balrog, Cammy for Juni, or Rose for Juli.
 - A search box on the launcher's Features page (Ctrl+F or Cmd+F) finds any feature by a word in its name, description
   or choices.
-- **Arcade timing** (Game page, off unless chosen): the processor run as on the arcade board, so the game slows
-  down where and as much as the board does. [More →](../../docs/TIMING.md)
+- **The board's speed**: the processor runs as on the arcade board, so the game plays at the board's speed and
+  slows down where and as much as the board does; **Slowdown → None** (Game page) gives it every clock instead.
+  [More →](../../docs/TIMING.md)
 - **Run-ahead** (Game page): what you press seen a frame or two sooner than on the board, with the game running
   exactly as without it.
 - **A custom soundtrack**: your own music in place of the board's, with the board's sound effects and voices: a folder

@@ -138,13 +138,13 @@ struct Game {
     // A training session is on (the game's own idea of one): the training aids (kFeatureTraining) work only then.
     // Not given: they work everywhere.
     bool (*inTraining)() = nullptr;
-    // With the board's timing (the port's arcade_timing feature) the game's own code runs in place of the readable
+    // With the board's timing (the port's slowdown feature, Arcade perfect) the game's own code runs in place of the readable
     // rewrites, whose time is only what their originals' takes without the board's waits: unless this says the
     // rewrites are needed now (training mode, a mode of the sources' own, widescreen, a cheat that works inside
     // one). Not given: never (the game's own code throughout).
     bool (*rewritesNeeded)() = nullptr;
-    // The game's sources decide the board's timing (machine.h, SetBoardTiming) in place of the port's arcade_timing
-    // feature, which is then left out: a shooting game's Slowdown row (shmup/shmup.h). Not given: arcade_timing.
+    // The game's sources decide the board's timing (machine.h, SetBoardTiming) in place of the port's slowdown
+    // feature, which is then left out: a shooting game's own Slowdown row (shmup/shmup.h). Not given: the port's.
     bool (*boardTiming)() = nullptr;
     // How many players an online match is for, as the host's features have it now (fight/tag.h sets it to three or four
     // for split-team versus). Not given: two.
