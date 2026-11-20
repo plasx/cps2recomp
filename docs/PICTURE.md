@@ -59,6 +59,12 @@ mode the monitor can't take is never chosen while playing.
   its side.
 - **Screen**: which screen the game opens on and goes full screen on (the main one, or the second, third or fourth in
   the order the system lists them).
+- **Keep the board's pace**: off (the default), in full screen at an arcade resolution the game runs one frame per
+  screen refresh, each shown as the screen refreshes, instead of on the board's 59.64 Hz clock. The modes a system
+  lists seldom run at exactly that rate (most CRT Emudriver modes run at 59.98 or 60 Hz), and on the board's clock
+  such a mode shows a frame twice every few seconds (a hitch in a scroll) and tears; synced, it never does, and the
+  game runs 0.6% faster at 60 Hz. On: the board's clock, each picture shown as soon as it's made. Online, always the
+  board's pace. The log says the screen's measured rate every ten seconds.
 - **Compact menu**: the in-game menu in small letters with its rows close together, so a page fits in 224 lines. It
   is on by itself in full screen at an arcade resolution.
 

@@ -115,6 +115,11 @@ namespace {
         if (want != ArcadeMode::Off && ArcadeModeOf(ChosenDisplay(), want, mode)) {
             if (!SDL_SetWindowFullscreenMode(window, &mode)) {
                 fprintf(stderr, "full screen %dx%d at %.2f Hz: %s\n", mode.w, mode.h, mode.refresh_rate, SDL_GetError());
+            } else {
+                // (the mode as the system lists it: Windows rounds a mode's refresh to whole hertz, so the rate measured
+                // synced to the screen is the one to trust)
+                fprintf(stderr, "full screen: arcade mode %dx%d at %.3f Hz (%d/%d)\n", mode.w, mode.h, mode.refresh_rate,
+                        mode.refresh_rate_numerator, mode.refresh_rate_denominator);
             }
             return;
         }
@@ -581,6 +586,8 @@ int RunWindowed(Port &port) {
     int zoomRow = port.zoom.Choice();
     const double kFrameNs = 1e9 / Machine::kFramesPerSecond;
     uint64_t nextFrame = SDL_GetTicksNS();
+    uint64_t syncLast = 0, syncSince = 0; // (Sync to the screen: the last frame's time, the measuring's start)
+    int syncFrames = 0;
     bool running = true;
     while (running && !port.quit && (port.opt.frames == 0 || port.frame < port.opt.frames)) {
         SDL_Event ev;
@@ -925,7 +932,12 @@ int RunWindowed(Port &port) {
             }
         }
 #endif
-        presenter.SetVsync(FeatureOn("display_vsync")); // (the Display page's VSync, as changed in the menu)
+        // (Sync to the screen, in full screen at an arcade mode and not online: each frame waits for the screen's
+        // refresh, the frame timer below only keeping a frame from coming far sooner than one)
+        const bool arcadeMode = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) && SDL_GetWindowFullscreenMode(window);
+        const bool syncScreen = arcadeMode && ArcadeSyncChosen() && !port.net;
+        // (the Display page's VSync, as changed in the menu)
+        presenter.SetVsync(FeatureOn("display_vsync") || syncScreen);
         if (port.quit) {
             break;
         }
@@ -940,7 +952,7 @@ int RunWindowed(Port &port) {
         const int shapeColumns = port.FramedColumns() ? port.FramedColumns() : port.ShownWidth();
         // (full screen in an arcade resolution: the picture fills the screen's mode, whose shape the monitor gives it; a
         // super resolution's columns stretched over its many, its lines one for one)
-        const bool arcadeScreen = window && (SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN) && SDL_GetWindowFullscreenMode(window);
+        const bool arcadeScreen = arcadeMode;
         const Shape shape = arcadeScreen ? Shape::Fill : DisplayShape();
         SDL_FRect where = turned ? FitPicture(width, height, Video::kHeight, port.ShownWidth(), shape, DisplayScaling())
                                  : FitPicture(width, height, shapeColumns, Video::kHeight, shape, DisplayScaling());
@@ -1159,7 +1171,28 @@ int RunWindowed(Port &port) {
             }
         }
 
-        if (!port.opt.unthrottled && !FastForward()) {
+        if (syncScreen && !port.opt.unthrottled && !FastForward()) {
+            // (paced by the screen: the picture just shown waited for its refresh. A frame never sooner than nine
+            // tenths of the board's after the last, in case the system shows it without waiting)
+            const uint64_t now = SDL_GetTicksNS();
+            const uint64_t soonest = syncLast + static_cast<uint64_t>(kFrameNs * 0.9);
+            if (syncLast && now < soonest) {
+                SDL_DelayPrecise(soonest - now);
+            }
+            syncLast = SDL_GetTicksNS();
+            nextFrame = syncLast;
+            // (the screen's refresh as measured, in the log every ten seconds or so: the mode's real rate)
+            if (!syncSince) {
+                syncSince = syncLast;
+                syncFrames = 0;
+            } else if (++syncFrames == 600) {
+                fprintf(stderr, "sync to the screen: %.3f frames a second (the board's: %.3f)\n",
+                        syncFrames * 1e9 / static_cast<double>(syncLast - syncSince), Machine::kFramesPerSecond);
+                syncSince = syncLast;
+                syncFrames = 0;
+            }
+        } else if (!port.opt.unthrottled && !FastForward()) {
+            syncLast = syncSince = 0;
             nextFrame += static_cast<uint64_t>(kFrameNs);
             const uint64_t now = SDL_GetTicksNS();
             if (nextFrame > now) {

@@ -723,6 +723,16 @@ void RegisterPortFeatures() {
                                   "one or another, in the order the system lists them. One that isn't connected: the main. "
                                   "Set on the launcher; the in-game menu can only put it back to the main one.",
                                   kFeatureLauncherOnly, {"Main", "Second", "Third", "Fourth"}});
+    // (crt_board_pace: frontend_sdl.cpp. Off, the default: in an arcade mode the frames are paced by the screen's refresh,
+    // as a mode the system lists is seldom exactly the board's rate; on: by the board's clock, as in a window)
+    TheGame().features.push_back({"crt_board_pace", "Arcade monitor", "Keep the board's pace",
+                                  "In full screen at an arcade resolution the game is synced to the screen: one frame for each "
+                                  "of its refreshes, each shown as it refreshes, so a mode that isn't exactly the board's 59.64 Hz "
+                                  "(most run at 59.98 or 60) never shows a frame twice or tears; the game then runs at the "
+                                  "screen's rate (0.6% faster at 60 Hz, too little to notice). On: the board's own clock, each "
+                                  "picture shown as soon as it's made, as GroovyMAME does with a mode made at the exact rate. "
+                                  "Online, always the board's pace.",
+                                  0});
     TheGame().features.push_back({"crt_compact_menu", "Arcade monitor", "Compact menu",
                                   "The in-game menu in small letters with its rows close together, as suits a screen of few "
                                   "lines (a small window, an arcade monitor): a page's rows all shown at once, none running "
@@ -761,6 +771,9 @@ ArcadeMode ArcadeResolution() {
 }
 int DisplayScreen() {
     return std::clamp(FeatureValue("crt_screen"), 0, 3);
+}
+bool ArcadeSyncChosen() {
+    return FeatureValue("crt_board_pace") == 0;
 }
 bool CompactMenuChosen() {
     return FeatureValue("crt_compact_menu") != 0;
@@ -1672,11 +1685,23 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     uint32_t *const px = turned ? upright.data() : pixels.data();
     const int W = turned ? +Video::kHeight : across, H = turned ? across : +Video::kHeight;
+    Overlays(px, W, H, panels, notices, turned ? +port::kHudText : boxParts | port::kHudText, net && !connecting && net->Silent() > 1000);
+    if (turned) {
+        // (back as the board draws it: a quarter to the right)
+        for (int y = 0; y < Video::kHeight; y++) {
+            for (int x = 0; x < across; x++) {
+                pixels[static_cast<size_t>(y) * across + x] = upright[static_cast<size_t>(across - 1 - x) * Video::kHeight + y];
+            }
+        }
+    }
+}
+
+void Port::Overlays(uint32_t *px, int W, int H, std::vector<SDL_Rect> *panels, bool notices, unsigned hudParts, bool waiting) const {
     const bool liveOnline = net && !connecting;
     const HudOpacity &onlineOpacity = kOnlineHudOpacity[liveOnline ? std::clamp(FeatureValue("online_hud_opacity"), 0, 2) : 0];
-    DrawHud(px, W, H, panels, turned ? +port::kHudText : boxParts | port::kHudText, liveOnline ? &onlineOpacity : nullptr);
-    const int bottomInset = net && !connecting ? TheGame().onlineBottomInset : 0;
-    // A line above the native gauges, in the middle (`up` pixels higher).
+    DrawHud(px, W, H, panels, hudParts, liveOnline ? &onlineOpacity : nullptr);
+    const int bottomInset = liveOnline ? TheGame().onlineBottomInset : 0;
+    // A line above the native gauges, in the middle (up pixels higher).
     auto status = [&](const char *text, int up, HudOpacity opacity = {220, 255}) {
         if (!notices) {
             return; // (a video's picture: Port::VideoFrame)
@@ -1722,7 +1747,6 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
     }
     if (net && !connecting) {
         char text[64] = "";
-        const bool waiting = net->Silent() > 1000;
         if (waiting) {
             snprintf(text, sizeof(text), net->Machines() > 2 ? "WAITING FOR THE OTHER PLAYERS" : "WAITING FOR THE OTHER PLAYER");
         } else if (FeatureOn("online_ping") && FeatureOn("online_delay")) {
@@ -1979,14 +2003,6 @@ void Port::Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels, b
             y += 22;
         }
     }
-    if (turned) {
-        // (back as the board draws it: a quarter to the right)
-        for (int y = 0; y < Video::kHeight; y++) {
-            for (int x = 0; x < across; x++) {
-                pixels[static_cast<size_t>(y) * across + x] = upright[static_cast<size_t>(across - 1 - x) * Video::kHeight + y];
-            }
-        }
-    }
 }
 
 void Port::Readouts(std::vector<uint32_t> &rgba, std::vector<SDL_Rect> *panels) const {
@@ -2080,6 +2096,13 @@ void Port::Framed(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
     // board's own), and the readout's text, each of their pixels kBy x kBy of the frame's
     std::vector<uint32_t> &laid = framedLaid;
     laid.assign(static_cast<size_t>(columns) * kLines, 0);
+    // Canvas blends onto its destination. Over black and white we can recover how much of each
+    // magnified court pixel should show through online text and panels, as Readouts does for the GPU.
+    const bool liveOnline = net && !connecting;
+    const bool waiting = liveOnline && net->Silent() > 1000;
+    if (liveOnline) {
+        framedWhite.assign(laid.size(), 0xffffffffu);
+    }
     const uint8_t *panel = machine->PanelPixels();
     const uint32_t *picture = machine->Picture();
     const int from = (across - columns) / 2;
@@ -2088,18 +2111,35 @@ void Port::Framed(std::vector<uint32_t> &pixels, Zoomed &zoomed) {
             for (int x = 0; x < columns; x++) {
                 const size_t n = static_cast<size_t>(y) * across + x + from;
                 if (panel[n]) {
-                    laid[static_cast<size_t>(y) * columns + x] = picture[n] | 0xFF000000u;
+                    const size_t at = static_cast<size_t>(y) * columns + x;
+                    laid[at] = picture[n] | 0xff000000u;
+                    if (liveOnline) framedWhite[at] = laid[at];
                 }
             }
         }
     }
-    port::DrawHud(laid.data(), columns, kLines, nullptr, port::kHudText);
+    Overlays(laid.data(), columns, kLines, nullptr, true, port::kHudText, waiting);
+    if (liveOnline) Overlays(framedWhite.data(), columns, kLines, nullptr, true, port::kHudText, waiting);
     for (int y = 0; y < kLines; y++) {
         const uint32_t *row = &laid[static_cast<size_t>(y) * columns];
         for (int x = 0; x < columns; x++) {
             if (const uint32_t over = row[x]; over >> 24) {
+                const uint32_t white = liveOnline ? framedWhite[static_cast<size_t>(y) * columns + x] : over;
                 for (int dy = 0; dy < kBy; dy++) {
-                    std::fill_n(&pixels[static_cast<size_t>(y * kBy + dy) * outWidth + static_cast<size_t>(x * kBy)], kBy, over);
+                    auto *dst = &pixels[static_cast<size_t>(y * kBy + dy) * outWidth + static_cast<size_t>(x * kBy)];
+                    if (white == over) {
+                        std::fill_n(dst, kBy, over);
+                        continue;
+                    }
+                    for (int dx = 0; dx < kBy; dx++) {
+                        uint32_t color = 0xff000000u;
+                        for (unsigned shift = 0; shift < 24; shift += 8) {
+                            const unsigned under = (dst[dx] >> shift) & 255;
+                            const unsigned dark = (over >> shift) & 255, light = (white >> shift) & 255;
+                            color |= ((dark * (255 - under) + light * under + 127) / 255) << shift;
+                        }
+                        dst[dx] = color;
+                    }
                 }
             }
         }
@@ -3253,11 +3293,11 @@ void Port::LeaveOnline() {
 
 
 void Port::OnlineEvent(int player, const std::string &text, uint64_t eventFrame) {
-    for (size_t at = 0; at < text.size();) {
-        const OnlinePickHistory::Position position{eventFrame, player, at};
-        const size_t comma = std::min(text.find(',', at), text.size());
-        const std::string item = text.substr(at, comma - at);
-        at = comma + 1;
+    for (size_t place = 0; place < text.size();) {
+        const OnlinePickHistory::Position position{eventFrame, player, place};
+        const size_t comma = std::min(text.find(',', place), text.size());
+        const std::string item = text.substr(place, comma - place);
+        place = comma + 1;
         const size_t eq = item.find('=');
         if (eq == std::string::npos) {
             continue;

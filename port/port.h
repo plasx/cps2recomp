@@ -246,6 +246,8 @@ struct Port {
     // (`notices`: the port's lines at the bottom too, as the window has them: the speed, the zoom, a screenshot saved...)
     void Shown(std::vector<uint32_t> &pixels, std::vector<SDL_Rect> *panels = nullptr, bool over = false, uint32_t base = 0,
                bool boxes = true, bool notices = true) const;
+    // Draw the requested game HUD parts, then the notices and online overlays on either the board or the framed court.
+    void Overlays(uint32_t *px, int W, int H, std::vector<SDL_Rect> *panels, bool notices, unsigned hudParts, bool waiting) const;
     // The readouts alone (all Shown draws over the game's picture), for the GPU's picture (gpu_picture.h): red, green,
     // blue, alpha bytes, the colours times the alpha; from Shown over black and over white, whose difference is what
     // the readouts leave of what is under them
@@ -263,7 +265,7 @@ struct Port {
         float x = 0, y = 0, size = 0; // (the view's middle in the picture, and its size against the shape's)
         bool settled = false;
     } frameCamera;
-    std::vector<uint32_t> framedFight, framedLaid; // (Framed's, kept from frame to frame)
+    std::vector<uint32_t> framedFight, framedLaid, framedWhite; // (Framed's, kept from frame to frame)
     std::vector<int> framedColumnOf;
     // The picture drawn on the GPU from the native records (--video gpu: docs/NATIVE_VIDEO.md), when the window's
     // presenter draws with SDL_GPU
@@ -416,6 +418,8 @@ int WindowSize();
 // menu switch
 enum class ArcadeMode { Off, Board, Super };
 ArcadeMode ArcadeResolution();
+// In an arcade mode, frames paced by the screen's refresh: unless the Arcade monitor page's Keep the board's pace is on
+bool ArcadeSyncChosen();
 int DisplayScreen();
 bool CompactMenuChosen();
 // A vertical game's picture shown upright (Game::vertical, the Display page's "Picture turned"): the board's picture,
