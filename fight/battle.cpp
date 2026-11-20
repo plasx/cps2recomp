@@ -1347,6 +1347,33 @@ namespace {
     // where it is wanted
     NativeVideo::Kept g_backKept; // (the stage behind's last frame, its records copied: StageBehind)
     bool g_backShown = false;     //   and it is under the fighters in the picture shown
+    // A stage machine's object list as the board takes it (Video::objectsTaken): the stage's entries after the last of
+    // the fighters' are in front of them (an entry is drawn over those before it: Fetus of God's bulbs, say), and marked
+    // so (Video::markFront), to be kept over the fighters laid on its picture (Over). (Its fighters are there, not
+    // drawn: Description::notTheStage; nor are the panel's, which is in front of everything, a fighter's.)
+    void MarkStageFront(uint16_t *list, int &last) {
+        auto entry = [list](int i, uint32_t &tile, uint16_t &attributes) {
+            tile = list[i + 2] + ((list[i + 1] & 0x6000u) << 3);
+            attributes = list[i + 3];
+        };
+        int fighters = -1;
+        for (int i = 0; i <= last; i += 4) {
+            uint32_t tile;
+            uint16_t attributes;
+            entry(i, tile, attributes);
+            if (d.notTheStage(tile, attributes) && !(d.thePanel && d.thePanel(tile, attributes))) {
+                fighters = i;
+            }
+        }
+        for (int i = fighters + 4; fighters >= 0 && i <= last; i += 4) {
+            uint32_t tile;
+            uint16_t attributes;
+            entry(i, tile, attributes);
+            if (!d.notTheStage(tile, attributes)) {
+                list[i] = static_cast<uint16_t>(list[i] | 0x1000);
+            }
+        }
+    }
     void RunStage(Machine &machine, Spare &spare, int stage, int cameraX, int cameraY, Made *made) {
         // (the stage behind: its frame's records kept, for the scene export to draw its layers: battle.h, StageBehind)
         auto keep = [&spare](Machine &m) {
@@ -1364,15 +1391,17 @@ namespace {
                 m.players[0] = m.players[1] = 0;
                 m.video.hideObject = d.notTheStage;
                 m.video.layerMask = 0xF & ~d.panelLayers;
+                m.video.markFront = d.notTheStage != nullptr;
+                m.video.objectsTaken = d.notTheStage ? MarkStageFront : nullptr;
                 CameraAt().x = cameraX;
                 CameraAt().y = cameraY;
             }
         }, made, keep);
     }
 
-    // The fighters laid over a stage's picture: the pixels the fighters' machine drew an object at. `show` of
-    // 256 is how much of them is seen. The player `falls` (-1: nobody), falling off the stage, is drawn behind
-    // the other.
+    // The fighters laid over a stage's picture: the pixels the fighters' machine drew an object at, but not where the
+    // stage is in front of them (its pixels marked so: MarkStageFront). `show` of 256 is how much of them is
+    // seen. The player `falls` (-1: nobody), falling off the stage, is drawn behind the other.
     void Over(std::vector<uint32_t> &stage, const std::vector<uint32_t> &fighters, int show, int falls = -1) {
         const uint32_t sets = falls >= 0 ? d.playerSets(falls) : 0;
         const uint32_t keep = static_cast<uint32_t>(256 - show), put = static_cast<uint32_t>(show);
@@ -1392,10 +1421,16 @@ namespace {
                         continue;
                     }
                     uint32_t &b = stage[static_cast<size_t>(y) * width + static_cast<size_t>(x)];
+                    if (b & 0x40000000u) {
+                        continue;
+                    }
                     b = show >= 256 ? f & 0xFFFFFF :
                         ((((b & 0xFF00FF) * keep + (f & 0xFF00FF) * put) >> 8) & 0xFF00FF) | ((((b & 0x00FF00) * keep + (f & 0x00FF00) * put) >> 8) & 0x00FF00);
                 }
             }
+        }
+        for (uint32_t &b : stage) {
+            b &= 0xFFFFFF; // (the marks gone from the picture shown)
         }
     }
     // After the fighters' frame: the stage machines' frames, and the picture and sound put together. `show`
@@ -1463,7 +1498,7 @@ namespace {
                 const uint32_t a = back.picture[i], b = next.picture[i];
                 const uint32_t rb = (((a & 0xFF00FF) * static_cast<uint32_t>(256 - nextGain) + (b & 0xFF00FF) * static_cast<uint32_t>(nextGain)) >> 8) & 0xFF00FF;
                 const uint32_t gr = (((a & 0x00FF00) * static_cast<uint32_t>(256 - nextGain) + (b & 0x00FF00) * static_cast<uint32_t>(nextGain)) >> 8) & 0x00FF00;
-                back.picture[i] = rb | gr;
+                back.picture[i] = rb | gr | ((a | b) & 0x40000000u);
             }
         } else if (g.way == kStageScroll) {
             // (onwards: across this stage, then this stage out and the next in, if that one is ready)
@@ -1690,6 +1725,9 @@ namespace {
         }
         g_dropSound.Mix(old.sound, gain);
         g_dropBackSound.Mix(old.sound, gain);
+        for (uint32_t &pixel : old.picture) {
+            pixel &= 0xFFFFFF; // (the stages' marks gone, when the fighters were not laid over them: Over)
+        }
         Give(machine, old);
     }
 

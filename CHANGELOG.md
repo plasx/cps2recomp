@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Endless battle: the stage's front in front of the fighters**: with the stages shuffled or scrolling, a stage's
+  pieces that the board draws in front of the fighters (Fetus of God's bulbs, say) were covered by the fighters and
+  their shadows. They are in front again, as in a match.
 - **Online: the in-game menu in a match**: Esc (or the gamepad's menu button) opens the in-game menu, small, over the
   running match (it goes on for both players; your fighter stands still while it is open), in place of the overlay.
   Its **Online match** page has the host's **Start Ball battle**, **Start Tag team battle** and **Back to Versus**, and

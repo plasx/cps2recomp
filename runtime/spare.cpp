@@ -62,6 +62,9 @@ void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &
     const unsigned layers = machine.video.layerMask;
     const bool mark = machine.video.markObjects;
     const unsigned markLayers = machine.video.markLayers;
+    const bool markFront = machine.video.markFront;
+    const unsigned frontLevel = machine.video.frontLevel;
+    const auto objectsTaken = machine.video.objectsTaken;
     const Video::Wide wide = machine.video.wide;
     const size_t sound = machine.audio.size();
     const size_t pixels = static_cast<size_t>(Video::kMaxWidth) * Video::kHeight; // (all of it, whatever its width)
@@ -89,6 +92,8 @@ void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &
     machine.video.layerMask = 0xF;
     machine.video.markObjects = false;
     machine.video.markLayers = 0;
+    machine.video.markFront = false;
+    machine.video.frontLevel = 0;
     if (g_keeping.fresh) {
         g_keeping.fresh(machine);
     }
@@ -118,6 +123,9 @@ void RunSpare(Machine &machine, Spare &spare, const std::function<void(Machine &
     machine.video.layerMask = layers;
     machine.video.markObjects = mark;
     machine.video.markLayers = markLayers;
+    machine.video.markFront = markFront;
+    machine.video.frontLevel = frontLevel;
+    machine.video.objectsTaken = objectsTaken;
     machine.video.wide = wide;
     if (g_keeping.putBack) {
         g_keeping.putBack(machine);
