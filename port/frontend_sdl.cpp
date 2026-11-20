@@ -6,6 +6,7 @@
 
 #include "bindings.h"
 #include "gamepad_slots.h"
+#include "keyboard_input.h"
 #include "online_pad_queue.h"
 #include "i18n.h"
 #include "port.h"
@@ -45,6 +46,7 @@ namespace {
         return table;
     }
     Bindings g_bindings = recomp::DefaultBindings(Table().table);
+    KeyboardInput keyboard(g_bindings, Table());
     int Players() {
         return Table().table.players;
     }
@@ -137,14 +139,7 @@ namespace {
 #endif
 
     bool KeyBound(SDL_Scancode key) {
-        for (int player = 0; player < Players(); player++) {
-            for (int action = 0; action < Table().table.count; action++) {
-                if (g_bindings.key[player][action] == key) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return keyboard.Bound(key);
     }
     bool ButtonBound(SDL_GamepadButton button) {
         return PadInputBound(g_bindings, Table(), {button, -1});
@@ -166,29 +161,6 @@ namespace {
     }
     bool KeyZoomHeld(const bool *keys) {
         return Zoom::Possible() && keys[SDL_SCANCODE_LSHIFT] && !KeyBound(SDL_SCANCODE_LSHIFT);
-    }
-    bool KeyZoom(SDL_Scancode key) {
-        return key == SDL_SCANCODE_Q || key == SDL_SCANCODE_E || key == SDL_SCANCODE_W || key == SDL_SCANCODE_UP || key == SDL_SCANCODE_DOWN ||
-               key == SDL_SCANCODE_LEFT || key == SDL_SCANCODE_RIGHT;
-    }
-
-    uint16_t ReadKeyboard(const bool *keys, int player) {
-        uint16_t pad = 0;
-        const bool zoomHeld = KeyZoomHeld(keys);
-        for (int action = 0; action < Table().table.count; action++) {
-            const SDL_Scancode key = g_bindings.key[player][action];
-            if (zoomHeld && KeyZoom(key)) {
-                continue;
-            }
-            if (key != SDL_SCANCODE_UNKNOWN && keys[key]) {
-                pad |= Table().bits[action];
-            }
-        }
-        // (Return starts player 1's game too, unless it has been given something to do)
-        if (player == 0 && keys[SDL_SCANCODE_RETURN] && !KeyBound(SDL_SCANCODE_RETURN)) {
-            pad |= kStart;
-        }
-        return pad;
     }
 
     uint16_t ReadGamepad(SDL_Gamepad *gp, int player) {
@@ -521,6 +493,12 @@ int RunWindowed(Port &port) {
     // (with a zoom to work, the left stick's click opens the menu when it is let go, unless a shoulder was pressed
     // while it was held: then it was the zoom's)
     bool stickWaiting = false;
+    auto syncGamepads = [&] {
+        if (controllers.SetEnabled(!FeatureOn("keyboard_only"))) {
+            stickWaiting = false;
+            onlinePads.Clear();
+        }
+    };
     auto toggleMenu = [&]() {
         if (port.net) {
             // (online: the game goes on for both players; Esc gives up a wait, and in a match opens the match's own menu
@@ -591,10 +569,16 @@ int RunWindowed(Port &port) {
     bool running = true;
     while (running && !port.quit && (port.opt.frames == 0 || port.frame < port.opt.frames)) {
         SDL_Event ev;
+        const bool menuWasOpen = port.menu.IsOpen() || port.leaving;
+        syncGamepads();
         if (port.typing && (!port.net || port.connecting)) {
             chatOpen(false); // (the match over, or waited for again)
         }
         while (SDL_PollEvent(&ev)) {
+            if ((ev.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || ev.type == SDL_EVENT_GAMEPAD_BUTTON_UP) &&
+                !controllers.Has(ev.gbutton.which)) {
+                continue;
+            }
             if (touch.Event(ev)) {
                 continue;
             }
@@ -626,6 +610,7 @@ int RunWindowed(Port &port) {
             // goes up and down (a touch is the touch controls': touch.h)
             if (Menu::Action action; port.menu.Mouse(ev, window, menuPlace, action)) {
                 port.MenuAct(action);
+                syncGamepads(); // a click can change the device choice before the next queued button event
                 menuDirty = true;
                 if (!port.menu.IsOpen()) {
                     heldAtClose = previousPad;
@@ -676,21 +661,19 @@ int RunWindowed(Port &port) {
                     port.Key('k', kKeyRestart);
                 } else if (!port.menu.IsOpen() && ev.key.scancode == SDL_SCANCODE_BACKSLASH && !ev.key.repeat) {
                     port.Key('k', kKeyExtra);
-                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat && (ev.key.mod & SDL_KMOD_SHIFT)) {
-                    port.SaveScene(); // (the scene export: scene.h)
-                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat && (ev.key.mod & SDL_KMOD_ALT) && (ev.key.mod & SDL_KMOD_SHIFT)) {
-                    port.SaveReplay(); // (the instant replay: the last seconds played)
-                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat && (ev.key.mod & SDL_KMOD_ALT)) {
-                    port.RecordVideo(); // (the video recording: video_record.h)
-                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat && (ev.key.mod & SDL_KMOD_CTRL)) {
-                    port.SceneClip();
-                } else if (ev.key.scancode == SDL_SCANCODE_F12 && !ev.key.repeat) {
-                    port.Screenshot();
+                } else if (ev.key.scancode == SDL_SCANCODE_F11 || ev.key.scancode == SDL_SCANCODE_F12 || ev.key.scancode == SDL_SCANCODE_RETURN) {
+                    using Shortcut = KeyboardInput::Shortcut;
+                    switch (keyboard.KeyDown(ev.key.scancode, ev.key.mod, ev.key.repeat)) {
+                    case Shortcut::Fullscreen: SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN)); break;
+                    case Shortcut::Screenshot: port.Screenshot(); break;
+                    case Shortcut::Scene: port.SaveScene(); break;
+                    case Shortcut::Clip: port.SceneClip(); break;
+                    case Shortcut::Record: port.RecordVideo(); break;
+                    case Shortcut::Replay: port.SaveReplay(); break;
+                    case Shortcut::None: break;
+                    }
                 } else if (ev.key.scancode == SDL_SCANCODE_F2) {
                     port.test = !port.test; // the operator's test switch
-                } else if (ev.key.scancode == SDL_SCANCODE_F11 ||
-                           (ev.key.scancode == SDL_SCANCODE_RETURN && (ev.key.mod & SDL_KMOD_ALT))) {
-                    SDL_SetWindowFullscreen(window, !(SDL_GetWindowFlags(window) & SDL_WINDOW_FULLSCREEN));
                 }
                 break;
             case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
@@ -733,7 +716,7 @@ int RunWindowed(Port &port) {
             case SDL_EVENT_GAMEPAD_REMOVED: {
                 const int seat = controllers.Removed(ev.gdevice.which);
                 onlinePads.ReleaseSeat(seat);
-                if (!port.net && !port.paused && !port.menu.IsOpen() && TheGame().pauseOnPadRemoval &&
+                if (seat >= 0 && !port.net && !port.paused && !port.menu.IsOpen() && TheGame().pauseOnPadRemoval &&
                     TheGame().pauseOnPadRemoval(seat)) {
                     toggleMenu();
                     port.menu.Note(recomp::i18n::TrFormat("P{} controller disconnected. Close the menu to resume.",
@@ -777,17 +760,19 @@ int RunWindowed(Port &port) {
             if (keysAfterChat) {
                 keysAfterChat = std::any_of(keys, keys + keyCount, [](bool down) { return down; });
             }
-            if (!(SDL_GetModState() & SDL_KMOD_ALT) && !port.typing && !keysAfterChat) {
-                for (int player = 0; player < Players(); player++) {
-                    pads[player] |= ReadKeyboard(keys, player);
-                }
-                port.service = keys[SDL_SCANCODE_9] && !KeyBound(SDL_SCANCODE_9);
+            keys = keyboard.Poll(keys, keyCount);
+            const bool captured = port.typing || keysAfterChat;
+            const bool shortcutAlt = keyboard.ShortcutAlt(SDL_GetModState());
+            const bool zoomHeld = KeyZoomHeld(keys) && !shortcutAlt;
+            for (int player = 0; player < Players(); player++) {
+                pads[player] |= keyboard.Read(keys, player, zoomHeld, captured);
             }
+            port.service = !captured && !shortcutAlt && keys[SDL_SCANCODE_9] && !KeyBound(SDL_SCANCODE_9);
             bool hurry = multi && keys[SDL_SCANCODE_F] && !KeyBound(SDL_SCANCODE_F);
             // (the camera moved by the arrows with Left Shift held, and by each gamepad's d-pad or stick with its click held)
             if (!port.menu.IsOpen()) {
                 int across = 0, down = 0;
-                if (KeyZoomHeld(keys) && !(SDL_GetModState() & SDL_KMOD_ALT)) {
+                if (zoomHeld && !captured) {
                     across += keys[SDL_SCANCODE_RIGHT] - keys[SDL_SCANCODE_LEFT];
                     down += keys[SDL_SCANCODE_DOWN] - keys[SDL_SCANCODE_UP];
                 }
@@ -836,6 +821,9 @@ int RunWindowed(Port &port) {
             }
             uint16_t pressed = all & ~previousPad;
             previousPad = all;
+            if (menuWasOpen && !port.menu.IsOpen() && !port.leaving) {
+                heldAtClose = previousPad; // a key or mouse event closed it before this keyboard poll
+            }
             // Start and Select held together open and close the menu, whatever they are bound to (the second
             // of them to go down is not also a press in the menu; neither reaches the game until let go)
             // (the players' gamepads: those beyond them play nothing)

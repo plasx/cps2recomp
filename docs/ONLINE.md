@@ -121,10 +121,26 @@ forwarding or a suitable VPN.
 
 Two people sharing a machine remains an optional arrangement, described under [In a match](#in-a-match).
 
+### Comparing a missed direction online and offline
+
+Use the same fighter, side and bindings in both trials. A repeated forward dash followed by a half-circle gives
+the other player a short sequence to repeat. If a mapper such as JoyToKey sends keyboard events, **Game → Keyboard
+only** lets you test those bindings on their own. Leave it off for a native gamepad. A gameplay binding for left
+or right Alt uses that physical key, so you can hold it together with a direction or another attack.
+
+For the online trial, have everyone use the same build. Record who hosted, the host delay in frames, the local
+**Input during network waits** choice, the controller or keyboard, and the mapper profile if one is active. Keep
+those settings fixed for the first comparison. If a direction sticks only online, repeat once with the other wait
+setting, or try a different host delay in a new match. A short clip with the failed input and the time it happened
+helps distinguish the first missed direction from the Hyper that later failed. An input movie (`--record FILE`)
+also shows what the simulation received. It begins after physical-device sampling.
+
 ## Watching a match
 
-A host who switches on **Allow spectators** (on the launcher's Online page, off unless chosen) lets others watch. Once
-the match is under way, its lobby entry says **Match in progress** and offers **Watch** in place of Join. A viewer needs
+Switch on **Allow spectators** on the launcher's **Online** page to let others watch. It starts off.
+Hosting from **Esc → Online → Host a match** uses that saved choice each time a room opens, including when the game
+hosts again after someone leaves. For a public listing, set **Your name** and leave **Unlisted match** off.
+Once the match is under way, its lobby entry says **Match in progress** and offers **Watch** in place of Join. A viewer needs
 the game, a ROM set and the same version as the players, and can come in at any point: the game shows **SPECTATING**,
 a moment behind the players, from the host's game as all players' controls have it. An FT5 or FT10 set's score
 comes along too.

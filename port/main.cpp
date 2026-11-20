@@ -539,6 +539,9 @@ void RegisterPortFeatures() {
                                       "close but not exact.",
                                       0, {"Arcade perfect", "None"}});
     }
+    TheGame().features.push_back({"keyboard_only", "Game", "Keyboard only",
+                                  "For JoyToKey and other keyboard mappers. Ignore native gamepad buttons, sticks and shortcuts, "
+                                  "including the chat button. Your keyboard bindings still work."});
     // (rapid_fire: Port::RapidFire)
     TheGame().features.push_back({"rapid_fire", "Game", "Rapid fire",
                                   "A button held down is pressed again and again (fifteen times a second), for the first button or "
@@ -1963,9 +1966,12 @@ void Port::Overlays(uint32_t *px, int W, int H, std::vector<SDL_Rect> *panels, b
         };
         // (and under them, what the keys and buttons are: while a line is typed, and for a while as a match begins)
 #ifdef __ANDROID__
-        const char *open = "Chat: tap CHAT (or a gamepad's right stick click)", *keys = "Enter: send   CHAT or Back: cancel";
+        const char *open = FeatureOn("keyboard_only") ? "Chat: tap CHAT" : "Chat: tap CHAT (or a gamepad's right stick click)";
+        const char *keys = "Enter: send   CHAT or Back: cancel";
 #else
-        const char *open = "Chat: T, or a gamepad's right stick click", *keys = "Enter: send   Esc or right stick click: cancel";
+        const bool keysOnly = FeatureOn("keyboard_only");
+        const char *open = keysOnly ? "Chat: T" : "Chat: T, or a gamepad's right stick click";
+        const char *keys = keysOnly ? "Enter: send   Esc: cancel" : "Enter: send   Esc or right stick click: cancel";
 #endif
         if (typing) {
             line(keys, {170, 170, 170, 255});
@@ -3154,12 +3160,16 @@ namespace {
     void ApplyHostSettings(Netplay::Settings &settings, const Options &options, bool fromMenu) {
         const int chosen = FeatureSetting("online_host_delay");
         int global = options.launcherNetDelay;
+        settings.spectators = options.netSpectatorsRequested;
         if (fromMenu || (global < 0 && chosen == 0 && options.netDelayOverride < 0)) {
             const std::filesystem::path folder = LauncherFolder();
             if (!folder.empty()) {
                 recomp::Ini prefs(folder / "launcher.ini");
                 prefs.load();
-                if (fromMenu) settings.name = prefs.get("online", "name");
+                if (fromMenu) {
+                    settings.name = prefs.get("online", "name");
+                    settings.spectators = settings.spectators || prefs.get("online", "spectators") == "1";
+                }
                 const std::string saved = prefs.get("online", "delay");
                 if (global < 0 && saved.size() == 1 && saved[0] >= '0' && saved[0] <= '8') global = saved[0] - '0';
             }
@@ -3275,6 +3285,7 @@ void Port::BackToSolo(bool stillHosting) {
         fprintf(stderr, "online: playing alone again\n");
         return;
     }
+    ApplyHostSettings(settings, opt, true);
     settings.invite.clear();
     settings.inviteName.clear();
     waitingHost = std::make_unique<Netplay>(settings);
@@ -3377,7 +3388,7 @@ void Port::OpenOnlineMenu() {
         }
     }
     const size_t localBegin = onlineRows.size();
-    for (const char *key : {"online_wait_input", "online_hud_opacity", "online_ping", "online_link_rtt",
+    for (const char *key : {"online_wait_input", "keyboard_only", "online_hud_opacity", "online_ping", "online_link_rtt",
                             "online_delay", "online_hide_names", "online_hide_streak", "online_names_place"}) {
         if (const Feature *feature = FindFeature(key)) pick(key, feature->title, feature->description);
     }
@@ -4249,7 +4260,7 @@ bool ParseArgs(int argc, char **argv, port::Options &o) {
             o.online = o.net.watching = true;
             o.net.address = next();
         } else if (a == "--net-spectators") {
-            o.net.spectators = true;
+            o.netSpectatorsRequested = true;
         } else if (a == "--join") {
             o.online = true;
             o.net.address = next();

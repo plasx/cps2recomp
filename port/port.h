@@ -100,6 +100,7 @@ struct Options {
     uint64_t rollbackTest = 0;  // --rollback-test SEED: each frame run as online play's rollback would (RollbackTest)
     bool online = false;        // --host or --join: online play (netplay.h), as `net` says
     Netplay::Settings net;
+    bool netSpectatorsRequested = false; // explicit --net-spectators, independent of any previous menu-hosted match
     int netDelayOverride = -1; // --net-delay overrides the saved host preference, including when explicitly zero
     int launcherNetDelay = -1; // the launcher's global Online setting, below an explicit per-game choice
     std::string netSay;         // --net-say [FRAME:]TEXT: (tests) the line said in the chat at FRAME of the match (120)

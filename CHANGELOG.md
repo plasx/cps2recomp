@@ -29,7 +29,11 @@
 - **Controllers** keep their player numbers when another pad disconnects. A returning pad reclaims its slot when
   the system recognizes it. In a local MVC fight, **Pause on controller disconnect** shows which player's pad to
   reconnect.
+- **Keyboard controls** now read a bound left or right Alt during play, including attacks and directions held by
+  another player. **Game → Keyboard only** lets JoyToKey users play through their mapped keys without also sending
+  native stick clicks to chat or the menu. Each machine chooses its own setting.
 - **Hosting and match settings** let the host set input delay and choose an unlisted match from inside the game.
+  Hosting from Esc also reads the launcher's **Allow spectators** choice, including when hosting again.
   The match menu includes MVC's host rules and each player's own display and input settings. Protocol 14 carries board timing and four-player state, supports
   three-person rooms and requires matching builds for players and spectators. [Hosting](docs/ONLINE.md).
 - **Input during network waits** defaults to **Retain short taps**, which keeps sampled presses and releases in

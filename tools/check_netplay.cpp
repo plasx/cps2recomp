@@ -6,6 +6,8 @@
 #include "../port/hud.h"
 #include "../recomp-common/text.h"
 #include "../port/online_pad_queue.h"
+#include "../port/keyboard_input.h"
+#include "../recomp-common/menu_sdl.h"
 #include "../fight/tag.h"
 
 #include <iostream>
@@ -968,6 +970,62 @@ struct NetplayTest {
         Require(host.upTo == cursors, "viewer packet injected player controls");
     }
 
+    static void KeyboardShortcuts() {
+        using Shortcut = KeyboardInput::Shortcut;
+        using Pads = OnlinePadQueue::Pads;
+        const BoundTable &table = MakeBoundTable(2, "", true);
+        Bindings bindings = recomp::DefaultBindings(table.table);
+        recomp::ApplyBinding(bindings, table.table, "keyboard1", "mp", "Left Alt");
+        recomp::ApplyBinding(bindings, table.table, "keyboard2", "lp", "B");
+        KeyboardInput input(bindings, table);
+        std::array<bool, SDL_SCANCODE_COUNT> keys{};
+        const auto sample = [&](bool captured = false) {
+            const bool *polled = input.Poll(keys.data(), keys.size());
+            return Pads{input.Read(polled, 0, false, captured), input.Read(polled, 1, false, captured)};
+        };
+        OnlinePadQueue queue;
+        keys[SDL_SCANCODE_B] = true;
+        keys[SDL_SCANCODE_LALT] = true;
+        Require(sample() == Pads{kPunch2, kPunch1}, "bound Alt masked a keyboard seat");
+        Require(sample(true) == Pads{}, "captured keyboard sent gameplay");
+        queue.Poll(sample(), 10);
+        keys[SDL_SCANCODE_LALT] = false;
+        Require(queue.Poll(sample(), 20) == Pads{kPunch2, kPunch1}, "Alt press lost during a wait");
+        queue.Accepted();
+        Require(queue.Poll(sample(), 25) == Pads{0, kPunch1}, "Alt release lost during a wait");
+
+        keys[SDL_SCANCODE_RALT] = keys[SDL_SCANCODE_RETURN] = true;
+        Require(input.KeyDown(SDL_SCANCODE_RETURN, SDL_KMOD_RALT, false) == Shortcut::Fullscreen &&
+                sample() == Pads{0, kPunch1}, "unbound Alt+Enter leaked Start or masked the second seat");
+        keys[SDL_SCANCODE_RALT] = false;
+        auto menu = [&]() { return recomp::sdl::MenuHeld(input.Poll(keys.data(), keys.size()), nullptr, 0); };
+        Require(sample() == Pads{0, kPunch1} && !(menu() & recomp::kMenuConfirm),
+                "releasing shortcut Alt before Enter leaked Start or menu Confirm");
+        keys[SDL_SCANCODE_SPACE] = true;
+        Require(menu() & recomp::kMenuConfirm, "fullscreen swallowed another menu key");
+        keys[SDL_SCANCODE_SPACE] = keys[SDL_SCANCODE_RETURN] = false;
+        (void)sample();
+        keys[SDL_SCANCODE_RETURN] = true;
+        Require(input.KeyDown(SDL_SCANCODE_RETURN, SDL_KMOD_NONE, false) == Shortcut::None &&
+                (menu() & recomp::kMenuConfirm) && sample() == Pads{cps2recomp::kStart, kPunch1},
+                "fresh Enter remained captured after the shortcut was released");
+        keys[SDL_SCANCODE_LALT] = true;
+        Require(input.KeyDown(SDL_SCANCODE_RETURN, SDL_KMOD_LALT, false) == Shortcut::None &&
+                sample() == Pads{kPunch2 | cps2recomp::kStart, kPunch1}, "gameplay Alt+Enter toggled fullscreen");
+        Require(input.KeyDown(SDL_SCANCODE_F11, SDL_KMOD_NONE, false) == Shortcut::Fullscreen &&
+                input.KeyDown(SDL_SCANCODE_F12, SDL_KMOD_RALT, false) == Shortcut::Record &&
+                input.KeyDown(SDL_SCANCODE_F12, SDL_KMOD_RALT | SDL_KMOD_LSHIFT, false) == Shortcut::Replay &&
+                input.KeyDown(SDL_SCANCODE_F12, SDL_KMOD_LSHIFT, false) == Shortcut::Scene &&
+                input.KeyDown(SDL_SCANCODE_F12, SDL_KMOD_LCTRL, false) == Shortcut::Clip &&
+                input.KeyDown(SDL_SCANCODE_F12, SDL_KMOD_NONE, false) == Shortcut::Screenshot,
+                "F12 shortcuts did not keep their distinct actions");
+        recomp::ApplyBinding(bindings, table.table, "keyboard1", "mp", "Right Alt");
+        keys[SDL_SCANCODE_RETURN] = keys[SDL_SCANCODE_LALT] = false;
+        keys[SDL_SCANCODE_RALT] = true;
+        Require(sample() == Pads{kPunch2, kPunch1} && input.ShortcutAlt(SDL_KMOD_LALT) && !input.ShortcutAlt(SDL_KMOD_RALT),
+                "right Alt binding took the wrong physical key");
+    }
+
     static void Run() {
         for (const auto &[name, run] : std::initializer_list<std::pair<const char *, void (*)()>>{
                  {"reopening host packets (loopback UDP)", ReopeningPackets},
@@ -984,6 +1042,7 @@ struct NetplayTest {
                  {"top name, streak and first-to layout bounds", TopHudNames},
                  {"bounded stalled retries with immediate fresh controls", StalledRetries},
                  {"SDL taps through network stalls, two local seats and stale-input expiry", WindowStallInputs},
+                 {"keyboard Alt bindings, UI shortcuts and held inputs across waits", KeyboardShortcuts},
                  {"all-machine first-to consensus and score mismatch", FirstToConsensus},
                  {"reliable mode events and four-human mode guard", ModeEvents},
                  {"fighter picks before same-frame mode commands under rollback", ModePickOrder},

@@ -140,6 +140,7 @@ namespace {
     enum class Share { Host, Own, Off, Keep };
     Share Shared(const Feature &feature) {
         const std::string category = feature.category, name = feature.name;
+        if (name == "keyboard_only") return Share::Own; // (this machine's input devices)
         if (name == "run_ahead" || name == "custom_colours") {
             return Share::Off; // (custom colours: each player's own library, which the other side has not)
         }

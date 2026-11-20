@@ -17,8 +17,27 @@ class GamepadSlots {
 public:
     const std::vector<SDL_Gamepad *> &Pads() const { return pads; }
 
+    bool Has(SDL_JoystickID id) const {
+        return id && std::find(ids.begin(), ids.end(), id) != ids.end();
+    }
+
+    bool SetEnabled(bool on) {
+        if (enabled == on) return false;
+        enabled = on;
+        if (on) {
+            int count = 0;
+            SDL_JoystickID *connected = SDL_GetGamepads(&count);
+            for (int i = 0; i < count; ++i) Added(connected[i]);
+            SDL_free(connected);
+        } else {
+            // Leave the slot keys in place for controllers that are still connected when re-enabled.
+            for (SDL_JoystickID id : ids) if (id) Removed(id);
+        }
+        return true;
+    }
+
     void Added(SDL_JoystickID id) {
-        if (std::find(ids.begin(), ids.end(), id) != ids.end()) return;
+        if (!enabled || Has(id)) return;
         SDL_Gamepad *pad = SDL_OpenGamepad(id);
         if (!pad) return;
         char guid[33];
@@ -64,6 +83,7 @@ public:
     }
 
 private:
+    bool enabled = true;
     std::vector<SDL_Gamepad *> pads;
     std::vector<SDL_JoystickID> ids;
     std::vector<std::string> keys;

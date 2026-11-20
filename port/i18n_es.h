@@ -10,6 +10,11 @@
 namespace port {
 
 inline constexpr recomp::i18n::Entry kSpanish[] = {
+    {"Keyboard only", "Solo teclado"},
+    {"Chat: T", "Chat: T"},
+    {"Chat: tap CHAT", "Chat: toca CHAT"},
+    {"Enter: send   Esc: cancel", "Enter: enviar   Esc: cancelar"},
+    {"For JoyToKey and other keyboard mappers. Ignore native gamepad buttons, sticks and shortcuts, including the chat button. Your keyboard bindings still work.", "Para JoyToKey y otros programas que convierten los botones del mando en teclas. Ignora los botones, palancas y atajos del mando, incluido el botón del chat. Las teclas asignadas siguen funcionando."},
     {"4:3: as the arcade's monitor showed it. Square pixels: each pixel as wide as it is tall, a little wider than 4:3. Fill: the whole window or screen, stretched to it.", "4:3: como lo mostraba el monitor del arcade. Píxeles cuadrados: cada píxel tan ancho como alto, algo más ancho que 4:3. Llenar: toda la ventana o pantalla, estirado."},
     {"A button held down is pressed again and again (fifteen times a second), for the first button or for all of them. The first press is seen at once, as without it.", "Un botón mantenido se pulsa una y otra vez (quince veces por segundo), solo el primer botón o todos. La primera pulsación se nota al instante, como sin esta opción."},
     {"A force bomb goes off without being used up.", "Una force bomb estalla sin gastarse."},

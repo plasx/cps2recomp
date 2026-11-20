@@ -48,6 +48,10 @@ out with its own launcher's table; the shared buttons its table has not got are 
 game, which reads the shared table, has only its own. A fighting game's table (and the shared one) has two more:
 `ppp` and `kkk`, all three punches and all three kicks at once, with no key or button until they are given one.
 
+For JoyToKey or another controller-to-keyboard mapper, turn on **Game → Keyboard only**. The game reads the mapped
+keys and ignores native gamepad buttons, sticks and shortcuts, including right-stick chat. The same switch is in
+the online match menu and applies to your machine. Turn it off to use your gamepad bindings again.
+
 A controller SDL doesn't know as a gamepad (an arcade panel that isn't an XInput one, issue #213) is given its
 mapping by a `gamecontrollerdb.txt` in [SDL_GameControllerDB](https://github.com/mdqinc/SDL_GameControllerDB)'s form:
 beside the programs, in the launcher's folder, or (the game only) in the game's own. The launcher and the game read it

@@ -64,6 +64,26 @@ Also repeat after menu-hosted disconnects and rejoining, reset/rehost, and ordin
 all six attack buttons for each owner, tags, simultaneous Duo, expiry and KO. Synthetic inputs and local processes
 do not establish physical-controller or real internet acceptance.
 
+## November 20 keyboard and controller checks
+
+With left Alt assigned to P1 medium punch and B assigned to P2 light punch, the SDL keyboard sampler returned
+both attacks in the same poll. The regression also exercises right Alt, capture, and press/release across a wait.
+Run `make check-netplay check-gamepad-slots` to repeat the sampler and virtual-controller tests.
+
+In a local MVC match on macOS, the host enabled **Keyboard only**. The guest left it off and held native light
+punch plus a mapped medium punch. The guest received `0030`. Switching the guest to keyboard only gave `0020`.
+Right-stick and Guide events already waiting in SDL opened neither chat nor the menu. T and Esc opened and closed
+chat through the keyboard. Switching back restored native light punch (`0010`) and right-stick chat. Four virtual
+pads also kept their seats when one was disconnected and reconnected while native input was off.
+
+These trials used a virtual SDL pad and injected keyboard input. A physical Windows controller with the reported
+JoyToKey or reWASD profile, repeated dashes under internet conditions and a four-country rematch still need field tests.
+
+The spectator preference was checked separately with live UDP hosts and an isolated launcher configuration.
+Sixteen menu-host, rehost and direct-launch cases covered missing, enabled, disabled and invalid saved preferences,
+hosts without a nickname, unlisted hosts and the explicit `--net-spectators` flag. Opening a fresh host from Esc
+and returning to hosting after a match both picked up the latest saved preference.
+
 ## November 20 board timing integration (protocol 14)
 
 The four-player build includes the board-speed default from upstream #425. All playing machines and spectators need protocol 14, even when two launchers display the same beta.3 version. Direct UDP tests in both directions refused a player on protocol 13 or 14 when the host used the other protocol, then admitted a matching player into the same seat.
@@ -165,7 +185,7 @@ python3 tools/check_mvc_tag_requests.py --program build/mvsc/mvsc --rom rom/mvsc
 python3 tools/check_mvc_rematch.py --program build/mvsc/mvsc --rom rom/mvsc
 ```
 
-`make check-gamepad-slots` attaches four SDL virtual gamepads, holds six buttons, removes two pads and reconnects them in reverse order. It checks the still-connected pads' slot numbers and button states. Identical pads without a unique serial or path use the first matching vacancy.
+`make check-gamepad-slots` attaches four SDL virtual gamepads, holds six buttons, removes two pads and reconnects them in reverse order. It checks the still-connected pads' slot numbers and button states, toggles **Keyboard only**, and reconnects a pad while native input is disabled. Identical pads without a unique serial or path use the first matching vacancy.
 
 Use `python3 tools/check_host_delay.py --rom rom/mvsc` for six actual two-process
 delay negotiations, including an explicit zero and conflicting launcher/game values.

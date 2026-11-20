@@ -71,8 +71,19 @@ int main() {
         Check(slots.Pads().size() == 4, "reconnected pads allocated extra seats");
         for (int i = 0; i < 4; ++i)
             Check(SDL_GetGamepadID(slots.Pads()[i]) == ids[i], "returning device lost its seat");
+        Check(slots.SetEnabled(false), "enter keyboard-only mode");
+        for (int i = 0; i < 4; ++i) {
+            slots.Added(ids[i]);
+            Check(!slots.Pads()[i] && !slots.Has(ids[i]), "keyboard-only mode accepted a native pad");
+        }
+        Detach(slots, ids[2], -1);
+        ids[2] = Attach(slots, 2);
+        Check(!slots.Has(ids[2]) && !slots.Pads()[2], "keyboard-only mode opened a hot-plugged pad");
+        Check(slots.SetEnabled(true), "restore gamepads");
+        for (int i = 0; i < 4; ++i)
+            Check(slots.Has(ids[i]) && SDL_GetGamepadID(slots.Pads()[i]) == ids[i], "restoring gamepads changed seats");
         for (int i = 0; i < 4; ++i) Detach(slots, ids[i], i);
-        std::puts("PASS: four SDL gamepads, simultaneous buttons, empty seats, reverse-order reconnect");
+        std::puts("PASS: four SDL gamepads, simultaneous buttons, empty seats, reverse-order reconnect, keyboard-only hotplug");
     } catch (const std::exception &e) {
         std::fprintf(stderr, "FAIL: %s\n", e.what());
         status = 1;
